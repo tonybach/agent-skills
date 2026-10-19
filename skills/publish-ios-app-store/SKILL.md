@@ -1,6 +1,6 @@
 ---
 name: publish-ios-app-store
-description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, editing App Store Connect listings or versions, or automating App Store Connect with the API, xcodebuild, or xcodegen.
+description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, editing App Store Connect listings or versions, or automating App Store Connect with the API, xcodebuild, xcodegen, or Xcode Cloud tag builds.
 ---
 
 # Publishing an iOS app to the App Store
@@ -80,6 +80,7 @@ Users with a non-English device language saw English because the app had only `e
 
 ## Phase 4 — App Store version and listing (API)
 
+- **Only one version can be in progress.** While a version is `WAITING_FOR_REVIEW` or `IN_REVIEW`, you cannot create the next one. Either wait for the result, or remove the version from review (it becomes `DEVELOPER_REJECTED`), change its `versionString`, attach the new build, and resubmit. That loses its place in the review queue, so ask the user first.
 - A **live version is not editable**. Name, subtitle, description, keywords, and screenshots change only with a new version. Only `promotionalText` can change at any time.
 - Create the version (ask first): `POST /v1/appStoreVersions` `{platform: IOS, versionString}` → state `PREPARE_FOR_SUBMISSION`. This also creates a second, editable **AppInfo** (`PREPARE_FOR_SUBMISSION`) next to the live one (`READY_FOR_SALE`).
 - Two levels of localization:
@@ -123,6 +124,58 @@ xcodebuild -exportArchive -archivePath build/App-1.0.1.xcarchive \
 - Before upload, check the archive: `Info.plist` version and build, and `<lang>.lproj` folders present.
 - Processing takes about 2–30 minutes. Check `GET /v1/builds?filter[app]=<appId>&sort=-uploadedDate&include=preReleaseVersion` until `processingState == VALID`. Note: `filter[preReleaseVersion.version]` returned nothing; use `include` and match the version instead.
 
+## Phase 5b — Automated builds with Xcode Cloud (alternative to Phase 5)
+
+Verified Oct 2026: a pushed tag `v1.0.2` archived on Xcode Cloud and reached App Store Connect as `1.0.2 (1)`, state `VALID`. The whole run took about 7.5 minutes, and the build was uploaded before the run was marked complete.
+
+**What the API can and cannot do** (App Store Connect API reference):
+
+| Resource | API |
+|---|---|
+| `ciProducts` (Xcode Cloud product) | read, delete. **No create.** |
+| `scmProviders`, `scmRepositories` (GitHub connection) | **read only** |
+| `ciWorkflows` | create, update (PATCH), delete |
+| `ciBuildRuns` | start a build (POST) |
+
+So the first setup must happen once in Xcode. After that, `xcloud.py` (in this folder) does the rest.
+
+**One-time setup in Xcode** (Integrate → Create Workflow…):
+1. Select the app product, then **Next**.
+2. **Connect Source Code Repository:** press **Connect…** for the primary repo only. The user signs in to GitHub and installs the Xcode Cloud GitHub app on that repo. Public package repos (Google, RevenueCat, …) do not need connecting; **Next** is enabled as soon as the primary repo is connected. Their **Connect…** opens a GitHub app-install page for someone else's repo, so tell the user to close it.
+3. **Confirm Existing App** (matched by bundle ID) → **Setup Complete**. Do **not** press **Start First Build**.
+4. Commit the new `<App>.xcodeproj/xcshareddata/xcodecloud/manifest.json`.
+
+**Traps:**
+- Setup saves a workflow named **Default** with a **Branch Changes** trigger on `main` and a **Build** action. It builds on every push until you change it.
+- Scripting Xcode's workflow editor through Accessibility did not work for deleting start conditions; neither Delete nor ⌘⌫ removed them. Edit the workflow through the API instead.
+- **"Latest Release" Xcode can lag behind.** On release day it still meant Xcode 27.0 while 27.1 was listed separately. Pin the exact version when the app needs a newer SDK (`xcloud.py xcode` lists them).
+- `buildDistributionAudience: INTERNAL_ONLY` builds can never be submitted to the App Store. Use `APP_STORE_ELIGIBLE`.
+- Xcode Cloud numbers builds from 1 for each new version.
+- Without `ITSAppUsesNonExemptEncryption` in `Info.plist`, every build waits for an export-compliance answer (see Phase 6, step 1).
+
+**Turn Default into a tag release workflow:**
+
+```bash
+python3 xcloud.py --bundle-id com.example.App show                      # workflow ID, current triggers
+python3 xcloud.py --bundle-id com.example.App tag-release <WORKFLOW_ID> --scheme App --xcode "Xcode 27.1"           # dry run
+python3 xcloud.py --bundle-id com.example.App tag-release <WORKFLOW_ID> --scheme App --xcode "Xcode 27.1" --apply   # ask first
+```
+
+This sets: start on tags with prefix `v`, manual start on tags only, no branch trigger, one **Archive – iOS** action with `APP_STORE_ELIGIBLE`, and the pinned Xcode.
+
+**Version from the tag:** copy `ci_post_clone.sh` (in this folder) to `<repo>/ci_scripts/ci_post_clone.sh`, set `PROJECT`, `chmod +x`, and commit. It reads `CI_TAG` (`v1.0.2` or `refs/tags/v1.0.2`) and writes `MARKETING_VERSION` into `project.pbxproj`. Test it locally on a scratch clone with `CI_TAG=v1.0.2 CI_PRIMARY_REPOSITORY_PATH=<clone> ci_scripts/ci_post_clone.sh`, then check `xcodebuild -showBuildSettings | grep MARKETING_VERSION`.
+
+**Release and watch:**
+
+```bash
+git tag v1.0.2 && git push origin v1.0.2                 # ask first: this uploads a build
+python3 xcloud.py --bundle-id com.example.App runs 1      # run, actions, and the App Store Connect build
+```
+
+Poll `runs` about once a minute. When the run is `COMPLETE SUCCEEDED`, `runs` also shows the build's `processingState`; continue with Phase 6 once it is `VALID`. `xcloud.py start <WORKFLOW_ID> --tag v1.0.2` re-runs a tag build through the API (it counts as a manual start); this command has not been run yet.
+
+**No post-actions through the API:** TestFlight tester-group distribution (a post-action) cannot be set through `ciWorkflows`. Add it in Xcode or App Store Connect if needed, or enable automatic distribution on the internal group.
+
 ## Phase 6 — Submit for review (ask first)
 
 1. Export compliance: `PATCH /v1/builds/{id}` `{"usesNonExemptEncryption": false}` when the app uses only HTTPS / Apple crypto. Check that earlier builds used the same answer. Better: add `ITSAppUsesNonExemptEncryption: false` to `Info.plist`, and the question never comes up again.
@@ -138,5 +191,6 @@ Age rating, App Privacy, pricing, and content rights carry over from the earlier
 ## Phase 7 — Wrap up
 
 - Commit `appstore/metadata/*.json`, the script, and the version bump. Only stage your own files.
+- With Xcode Cloud, also commit `ci_scripts/` and `xcshareddata/xcodecloud/manifest.json`, and record the product and workflow IDs (not the key) in project notes.
 - Tell the user to move the `.p8` out of `~/Downloads` if it is still there.
 - Note what is not done: the review result, screenshots per language, and the Android/Play counterpart (see `publish-android-play`).
