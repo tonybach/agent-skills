@@ -14,7 +14,7 @@ Reusable skills for coding agents (Claude Code and other tools that read `SKILL.
 
 ```bash
 claude plugin marketplace add tonybach/agent-skills
-claude plugin install agent-skills@agent-skills
+claude plugin install agent-skills@tonybach-skills
 ```
 
 Update later with `claude plugin update agent-skills`.
@@ -35,9 +35,9 @@ Add the marketplace in the cloud environment's setup script, or commit a `.claud
 ```json
 {
   "extraKnownMarketplaces": {
-    "agent-skills": { "source": { "source": "github", "repo": "tonybach/agent-skills" } }
+    "tonybach-skills": { "source": { "source": "github", "repo": "tonybach/agent-skills" } }
   },
-  "enabledPlugins": { "agent-skills@agent-skills": true }
+  "enabledPlugins": { "agent-skills@tonybach-skills": true }
 }
 ```
 
