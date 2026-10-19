@@ -1,7 +1,7 @@
 {
   "name": "agent-skills",
   "description": "Reusable skills for coding agents, learned from shipping real apps.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": { "name": "Tony Bach", "url": "https://tonybach.io" },
   "homepage": "https://github.com/tonybach/agent-skills",
   "repository": "https://github.com/tonybach/agent-skills",

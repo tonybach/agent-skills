@@ -7,6 +7,7 @@ Reusable skills for coding agents (Claude Code and other tools that read `SKILL.
 | Skill | Use it when |
 |-------|-------------|
 | [publish-android-play](skills/publish-android-play/SKILL.md) | Preparing, uploading, or releasing an Android app on Google Play: signing, store assets, Play Console forms, one-time products and subscriptions with RevenueCat, fastlane or the Play Developer API. |
+| [publish-ios-app-store](skills/publish-ios-app-store/SKILL.md) | Localizing, uploading, or submitting an iOS app: String Catalogs, App Store Connect API listings and versions, xcodebuild archive and upload, review submission. |
 
 ## Install
 
@@ -24,6 +25,7 @@ Update later with `claude plugin update agent-skills`.
 ```bash
 git clone https://github.com/tonybach/agent-skills.git
 cp -R agent-skills/skills/publish-android-play ~/.claude/skills/
+cp -R agent-skills/skills/publish-ios-app-store ~/.claude/skills/
 ```
 
 Other agents that support skills can use `~/.agents/skills/` instead.
