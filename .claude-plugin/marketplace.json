@@ -1,0 +1,15 @@
+{
+  "name": "agent-skills",
+  "description": "Reusable skills for coding agents, learned from shipping real apps.",
+  "owner": {
+    "name": "Tony Bach",
+    "url": "https://tonybach.io"
+  },
+  "plugins": [
+    {
+      "name": "agent-skills",
+      "source": "./",
+      "description": "Reusable skills for coding agents, learned from shipping real apps."
+    }
+  ]
+}
