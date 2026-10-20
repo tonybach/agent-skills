@@ -170,6 +170,8 @@ python3 -I xcloud.py --bundle-id com.example.App tag-release <WORKFLOW_ID> --sch
 
 This sets: start on tags with prefix `v`, manual start on tags only, no branch trigger, one **Archive – iOS** action with `APP_STORE_ELIGIBLE`, and the pinned Xcode.
 
+The `PATCH` can return **500 `UNEXPECTED_ERROR` and still apply** (seen twice in Oct 2026). Before you retry, run `show` and check the workflow.
+
 **Version from the tag:** copy `ci_post_clone.sh` (in this folder) to `<repo>/ci_scripts/ci_post_clone.sh`, set `PROJECT`, `chmod +x`, and commit. It reads `CI_TAG` (`v1.0.2` or `refs/tags/v1.0.2`) and writes `MARKETING_VERSION` into `project.pbxproj`. Test it locally on a scratch clone with `CI_TAG=v1.0.2 CI_PRIMARY_REPOSITORY_PATH=<clone> ci_scripts/ci_post_clone.sh`, then check `xcodebuild -showBuildSettings | grep MARKETING_VERSION`.
 
 **Release and watch:**
