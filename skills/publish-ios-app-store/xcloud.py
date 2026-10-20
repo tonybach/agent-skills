@@ -180,6 +180,7 @@ ENTITLEMENT_CAPS = {
     "com.apple.developer.game-center": "GAME_CENTER",
     "com.apple.developer.nfc.readersession.formats": "NFC_TAG_READING",
     "com.apple.developer.weatherkit": "WEATHERKIT",
+    "com.apple.developer.journal.allow": "JOURNALING_SUGGESTIONS",
 }
 
 
