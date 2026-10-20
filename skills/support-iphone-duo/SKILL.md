@@ -1,6 +1,6 @@
 ---
 name: support-iphone-duo
-description: Use when making an iOS app work on iPhone Duo (Apple's foldable iPhone), testing in the iPhone Duo simulator or Xcode Device Hub, adapting a portrait-only SwiftUI iPhone app to resizable windows, wide or short layouts, vertical toolbars, or iOS 27.1 SDK changes, or when Xcode 27.1 builds fail after upgrading.
+description: Use when making an iOS app or its widgets work on iPhone Duo (Apple's foldable iPhone), testing in the iPhone Duo simulator or Xcode Device Hub, adapting a portrait-only SwiftUI iPhone app to resizable windows, wide or short layouts, vertical toolbars, or iOS 27.1 SDK changes, or when Xcode 27.1 builds fail after upgrading.
 ---
 
 # Supporting iPhone Duo
@@ -45,8 +45,8 @@ Search for and remove each of these:
 grep -rn -E "UIScreen\.main|userInterfaceIdiom|UIDevice\.current\.orientation|statusBarOrientation|interfaceOrientation|UIWindow\(frame|bounds\.(width|height) *==" <AppSources>
 ```
 
-- `UIScreen.main.bounds` → view/window bounds, `GeometryReader`, or `onGeometryChange`. Scale → `@Environment(\.displayScale)`.
-- Idiom or device-size checks → size classes or available space. `horizontalSizeClass == .regular` now runs on iPhone.
+- `UIScreen.main.bounds` → view/window bounds, `GeometryReader`, or `onGeometryChange`. Scale → `@Environment(\.displayScale)`. `UIScreen.main.traitCollection` (e.g. for the system light/dark style) → the window scene's `traitCollection`.
+- Idiom or device-size checks → size classes or available space. `horizontalSizeClass == .regular` now runs on iPhone. An `isIPad` flag that picks large type and compact spacing maps to `horizontalSizeClass == .regular && verticalSizeClass == .regular` (open Duo, iPad).
 - `UIWindow(frame:)` → `UIWindow(windowScene:)`.
 - `.scaledToFill()` hero media can crop badly on wide windows.
 
@@ -91,6 +91,21 @@ LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12
 .presentationDetents([.medium, .large])
 ```
 
+```swift
+// Wide vs stacked without hard-coded widths: the first child that fits wins.
+// Compact height is side by side too (same rule as sideBySide above), but with a narrower,
+// scrolling side column; check it first, because ViewThatFits only measures width.
+if vSize == .compact { shortSideBySide } else { ViewThatFits(in: .horizontal) { wideSideBySide; stacked } }
+
+// Inside ViewThatFits, a LazyVGrid of wrapping text reports its unwrapped (huge) ideal width,
+// so it never "fits" and the fallback always wins. Give it a fixed ideal width: the narrowest
+// width where two columns still read well (560 pt for icon + title + one-line description rows).
+LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) { ... }
+    .frame(minWidth: 560, idealWidth: 560, maxWidth: .infinity)
+```
+
+- **Fixed-column grids drawn to the width** (calendars, year or life grids): on the open display, dots sized to 951 pt push most rows off screen. On regular width, size each cell to `min(widthFit, heightFit)` and center the grid, so the whole grid fits. Keep width sizing plus scrolling on compact width, where height-fit cells would be too small. Use the same origin and step in the tap handler.
+- A `.title2` question in a fixed `VStack` was truncated to one line on the 466 pt outer display. Add `.fixedSize(horizontal: false, vertical: true)` and `.multilineTextAlignment(.center)`.
 - Cards with `Color(.systemGray6)` vanish on iPad and Duo form sheets, because the sheet background is the same gray. Use `Color(.tertiarySystemFill)`.
 - `ForEach(Calendar.current.veryShortWeekdaySymbols, id: \.self)` drops the repeated "S" and "T". Wide layouts make the missing columns obvious. Use `Array(symbols.enumerated())` with `id: \.offset`.
 - Page indicators overlaid at the bottom collide with scrolled content. Put the pinned actions in a `safeAreaInset(edge: .bottom)` with a background, and keep the dots in the inset's bottom padding.
@@ -99,12 +114,27 @@ LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12
 
 - **RevenueCat 5.59.0 does not compile** with the Xcode 27.1 Swift compiler: `PaywallColor.swift: error: invalid redeclaration of synthesized memberwise 'init(stringRepresentation:)'`. 5.96.0 works. A `majorVersion: 5.0.0` range does not help, because `Package.resolved` pins the old version, and `xcodebuild -resolvePackageDependencies` reuses the cached checkout.
 - To bump a pin, edit `Package.resolved`. Set `version`, and set `revision` to the **commit** hash. For an annotated tag that is the peeled `^{}` line of `git ls-remote <repo> refs/tags/<v> 'refs/tags/<v>^{}'`, not the tag-object hash. Then delete the DerivedData `SourcePackages` and rebuild.
+- RevenueCat 5.55.2 fails too, with `CustomerCenterConfigData.swift: error: ambiguous use of 'init(stringRepresentation:)'`. In a plain `.pbxproj` project, raising `minimumVersion` in the `XCRemoteSwiftPackageReference` to `5.96.0` and running `xcodebuild -resolvePackageDependencies` updated `Package.resolved` correctly. Deleting only the pin from `Package.resolved` did not: the cached checkout re-pinned the old version.
+- **Xcode Cloud "Latest Release" can still mean Xcode 27.0.** The app then ships with the 27.0 SDK behaviour (resizes, but no vertical rail). Pin Xcode 27.1 in the workflow when it is a release version; see the `publish-ios-app-store` skill.
 - `ibtoold no longer exists at path ... exiting immediately` / `CompileAssetCatalogVariant failed` means Xcode was replaced mid-build. Rerun after the install finishes.
 - `You have not agreed to the Xcode license agreements` blocks `simctl` and builds. The user runs `sudo xcodebuild -license`.
 
 ## Phase 5: Verify in the Duo simulator
 
-**Find the simulator:** `xcrun simctl list devices available | grep -i duo` (iOS 27.1 runtime). Boot it with `xcrun simctl boot <udid>`. The simulator UI is **Device Hub** (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`). There is no separate `Simulator.app` in Xcode 27.
+**Use your own simulator.** Other sessions test other apps on the shared "iPhone Duo" at the same time: another app appeared on it mid-test, and rebooting it disrupted the other session. Create one per project, and pass its UDID everywhere:
+
+```bash
+xcrun simctl create "iPhone Duo - <App>" com.apple.CoreSimulator.SimDeviceType.iPhone-Duo com.apple.CoreSimulator.SimRuntime.iOS-27-1
+xcrun simctl boot <udid> && xcrun simctl bootstatus <udid> -b
+```
+
+Never shut down or erase a device you did not create. The simulator UI is **Device Hub** (`/Applications/Xcode.app/Contents/Applications/DeviceHub.app`). There is no separate `Simulator.app` in Xcode 27.
+
+**Claude Code iOS Simulator panel tool** (the fastest way to tap and screenshot):
+- If it says `Failed to initialize simulator device set`, it still has the old Xcode's simulator framework loaded. Ask the user to restart the Claude app; after that it worked with Xcode 27.1.
+- Each new device needs the user's approval ("Let Claude use it"). Ask once, then wait.
+- Pass `device: <udid>` on **every** call. Without it, a tap went to a different booted Duo and timed out.
+- Its screenshots follow the active display (outer when closed, inner when open), and tap coordinates are points of the current pose (466 x 678 closed, 951 x 669 open, and so on).
 
 **Screenshots:**
 - `xcrun simctl io <udid> screenshot` captures the inner display, which is **black while closed**. List the displays with `xcrun simctl io <udid> enumerate` and capture with `--display=<uuid>`. Pick the display by `Default width` (1398 = outer, 2007 = inner). **The UUIDs change between launches**, so look them up every time.
@@ -112,17 +142,22 @@ LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12
 - `XCUIScreen.main.screenshot()` and `XCUIScreen.screens` return **black images** on the Duo simulator. Use the handshake in `scripts/ScreenTourUITests.swift` + `scripts/duo-capture-watcher.sh`: the test writes `<id>.ready`, the host script captures both displays with simctl and writes `<id>.done`.
 - Pass `TEST_RUNNER_SHOT_DIR=... TEST_RUNNER_POSE=...` to `xcodebuild test`; the test reads them as `SHOT_DIR` and `POSE`. The simulator shares the host file system, so the test can write marker files to a host path.
 
-**Driving the app:** Use a temporary UI-testing target (the template above) and remove it before you commit. Launch arguments `-key value` override `@AppStorage` / `UserDefaults` for one launch: `["-hasCompletedOnboarding", "NO"]`. To write persistent prefs instead, run `xcrun simctl spawn <udid> defaults write <data-container>/Library/Preferences/<bundle-id> key -type value`. A host-side `defaults write` to that plist is ignored, because the simulator's `cfprefsd` caches values.
+**Driving the app:** Use a temporary UI-testing target (the template above) and remove it before you commit. Launch arguments `-key value` override `@AppStorage` / `UserDefaults` for one launch: `["-hasCompletedOnboarding", "NO"]`. To write persistent prefs instead, run `xcrun simctl spawn <udid> defaults write <data-container>/Library/Preferences/<bundle-id> key -type value`. A host-side `defaults write` to that plist is ignored, because the simulator's `cfprefsd` caches values. For prefs in an **App Group** (shared with widgets), get the folder with `xcrun simctl get_app_container <udid> <bundle-id> group.<id>` and write to `<that folder>/Library/Preferences/group.<id>` the same way; terminate the app first. This is also how to turn on a DEBUG-only premium flag for testing paid screens.
 
 **Poses (the hard part):**
 - `simctl` has no fold/hinge command. `simctl io screenConfig ... power off` does not fold the device. XCUITest has no fold API, and `XCUIDevice.shared.orientation` **does nothing** on the Duo.
-- Only Device Hub can change poses. Its window has buttons **Closed**, **Partially Open** (Book), **Open** and **Rotate Right**. Its menus have **Controls → Rotate Left/Right** and **Device → Orientation**.
-- With the user's Accessibility permission, `scripts/devicehub.swift` presses those buttons (`./devicehub press "Open"`). System Events cannot see Device Hub's window (it reports unix id 0), and `NSRunningApplication` reports pid -1, so the script uses the AX API with the pid from `pgrep`.
+- Only Device Hub can change poses. Use its window buttons **Closed**, **Partially Open** (Book), **Open** and **Rotate Right**. Its menus (**Controls → Rotate Left/Right**, **Device → Orientation**) could not be reached through Accessibility.
+- With the user's Accessibility permission, `scripts/devicehub.swift` presses those buttons. Build it once into a scratch folder (`swiftc -O scripts/devicehub.swift -o <scratch>/devicehub`), then run `<scratch>/devicehub press "Open"`. If the user has not granted permission yet, say what it allows and that they can turn it off afterwards; without it, ask them to press the pose buttons.
+- **Rotate Right cycles four orientations, and one of them is upside-down portrait.** iPhone apps without `UIInterfaceOrientationPortraitUpsideDown`, and the iPhone Home Screen, ignore that one. So a press can seem to do nothing. Check the screenshot's width and height after each press, and count presses (four bring you back to the start). `devicehub menu Controls "Rotate Right"` reported "menu item not found"; the window button works. System Events cannot see Device Hub's window (it reports unix id 0), and `NSRunningApplication` reports pid -1, so the script uses the AX API with the pid from `pgrep`.
 - **Do not quit Device Hub.** Quitting it shuts down the booted Duo. After a restart, its window's accessibility tree was broken for a while (the window reported itself as the app, recursively), so pose buttons and device menu items were unreachable. It recovered later on its own. If `./devicehub dump` shows no buttons, wait and retry rather than restarting again. Change poses in one Device Hub session where you can, in this order: Closed (default after boot) → Rotate Right → back → Open → Rotate Right → back → Partially Open.
 - Device Hub can show several devices. `dump` prints the window title (for example `iPhone Duo – iOS 27.1`). Check that it names the Duo before you press anything.
 - Cover at least: closed, closed turned, open, open turned, Book. Book has the same window size as open, but sheets anchor to the leading half.
 - The Duo has Touch ID, not Face ID. Biometric lock screens fall back to the passcode prompt until you choose **Device → Touch ID → Enrolled**.
-- The Claude Code iOS Simulator panel tool could not load the Xcode 27.1 device set ("Failed to initialize simulator device set"). Fall back to `simctl` and the UI-test handshake.
+
+**Widgets:** check every widget family in every pose too. The Home Screen grid changes: two columns when closed, a wider grid when open, and in Book the widgets move to the trailing half.
+- Add them by hand: long-press an empty area → the brush button on the trailing rail → **Add Widget** → search the app name → swipe to the family → **Add Widget**.
+- Gallery previews are cached snapshots, so they can show an old or "set up" state. Judge the placed widget instead, after you launch the app once so it calls `WidgetCenter.shared.reloadAllTimelines()`.
+- Widget-only bugs found this way: a small widget truncating "46%" to "46…" (fix: tighter padding plus `.lineLimit(1)` and `.minimumScaleFactor`), and widgets stuck on "Open app to set up" because the app wrote the shared values only in `didSet` when they changed. When setup finishes, write every value the widgets read, then reload the timelines.
 
 **When the Duo simulator is unavailable:** iPad simulators in windowed mode (iPadOS 26+) can approximate Duo windows. Drag the bottom-right resize corner to about 466 x 678, 678 x 466 and 951 x 669 pt. This catches clipping, scrolling and width problems, but not the vertical rail or the 27.1 safe areas.
 
@@ -132,4 +167,5 @@ LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12
 - Primary actions are visible without scrolling in closed turned (466 pt tall).
 - No full-width text lines on the inner display; headers align with the content below them.
 - Sheets stay readable at medium height and can expand.
-- Grids reflow to more columns when wide.
+- Grids reflow to more columns when wide; fixed-column grids fit the whole grid on regular width.
+- Widgets show real data, without truncation, in every pose.

@@ -1,6 +1,6 @@
 ---
 name: publish-ios-app-store
-description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, editing App Store Connect listings or versions, or automating App Store Connect with the API, xcodebuild, xcodegen, or Xcode Cloud tag builds.
+description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, editing App Store Connect listings or versions, automating App Store Connect with the API, xcodebuild, xcodegen, or Xcode Cloud tag builds, or when Xcode Cloud builds fail or never reach TestFlight ("Exporting for App Store Distribution failed", "Automatic signing cannot update bundle identifier", "No profiles for ... were found").
 ---
 
 # Publishing an iOS app to the App Store
@@ -11,6 +11,8 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 
 - **Never read, print, or paste the `.p8` private key.** Only pass its path to tools. The Key ID and Issuer ID are not secret, but keep them (and team IDs) out of public repos and skills.
 - **Ask before:** creating an App Store version, uploading a build, changing a live listing, answering export compliance, and submitting for review. A user's "submit it" covers the submission steps in Phase 6, not new metadata changes.
+- **Auto mode blocks deploy steps without a specific approval.** Uploading a build, attaching a build, and submitting were each blocked as a production deploy after a general "yes, do everything". They ran once the user's latest message named the action ("Attach build 1.1.0 (4) to version 1.1.0 … and submit for review now"). So ask one question that names the version, the build, and the action. Never retry a blocked step in another form; offer the exact command for the user to run instead.
+- **Do not search the Mac for `.p8` files.** Auto mode blocks it as credential exploration. Ask the user for the Key ID, the Issuer ID, and the file path, then check only that path with `test -f`. A key used in an earlier session may have been moved since.
 - Accepting agreements, creating API keys, and signing in to Xcode are the user's job.
 - Before a commit, run `git status` and stage only the files you changed. Other sessions may have edited files in the same checkout. If an unexpected change gets into a commit, show the diff to the user and verify it (Phase 0, step 4 found such a change was a real fix).
 - Keep an `appstore/` folder in the project: the API script and one `metadata/<locale>.json` per language. Commit it so the next release reuses it.
@@ -22,7 +24,9 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 3. Project: `project.yml` (xcodegen) or the `.pbxproj`, `Info.plist`, `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `DEVELOPMENT_TEAM`, `knownRegions`, and existing `*.xcstrings` / `*.lproj`.
 4. **Entitlement ID check:** grep for `entitlements["..."]` in iOS (and Android) code and compare with the RevenueCat entitlement `lookup_key` (`list-entitlements`). In one app the code used `"lifetime"` but the dashboard ID was `"<App> Pro"`, so paid users looked unpaid after a restart or restore.
 5. **Listing claims against the code:** if the description says "zero analytics / no tracking", check that Firebase Analytics is off (`IS_ANALYTICS_ENABLED = false` in `GoogleService-Info.plist` and `Analytics.setAnalyticsCollectionEnabled(false)`). Crashlytics still sends crash reports, so "zero telemetry" is not true.
-6. Public listing without credentials: `curl "https://itunes.apple.com/lookup?id=<appStoreId>&country=us"` gives the name, live version, and description (not the subtitle or keywords).
+6. Public listing without credentials: `curl "https://itunes.apple.com/lookup?id=<appStoreId>&country=us"` (or `?bundleId=<bundle id>`) gives the name, live version, and description (not the subtitle or keywords). The next `MARKETING_VERSION` must be higher than the live version.
+7. **Capabilities against the App ID:** `python3 -I xcloud.py --bundle-id <id> capabilities <App>.entitlements`. A capability added to the code (iCloud, Push, …) but not to the App ID builds fine on the Mac, because Xcode adds it there. On Xcode Cloud it breaks every archive export (Phase 5b).
+8. **CloudKit:** if the entitlements use CloudKit, the user must deploy the schema to Production before the release, or sync fails for App Store users. CloudKit Console → **CloudKit Database** → the container → select the **Development** environment → **Deploy Schema Changes…** at the bottom of the left sidebar (hidden while Production is selected).
 
 ## Phase 1 — App Store Connect API access
 
@@ -38,7 +42,7 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 
 **First call fails with 403 `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`:** the Account Holder must accept the new agreement in App Store Connect → **Business** (or the banner at the top). Claude cannot accept terms. Wait for the user, then retry.
 
-**Auth:** an ES256 JWT, `{"iss": issuer, "iat", "exp": iat + ≤20 min, "aud": "appstoreconnect-v1"}`, header `{"kid": keyId, "typ": "JWT"}`. Use `asc.py` from this skill. It has no dependencies and signs with `openssl`:
+**Auth:** an ES256 JWT, `{"iss": issuer, "iat", "exp": iat + ≤20 min, "aud": "appstoreconnect-v1"}`, header `{"kid": keyId, "typ": "JWT"}`. Use `asc.py` from this skill. It has no dependencies and signs with `openssl`. For one-off queries, `import asc` and use `asc.call("GET", "/builds?…")`: paths are relative to `/v1`, so `"/v1/…"` gives a 404.
 
 ```bash
 export ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8
@@ -71,6 +75,7 @@ Users with a non-English device language saw English because the app had only `e
 ## Phase 3 — Version number
 
 - Set `MARKETING_VERSION` to the new version (`1.0.1`). The build number (`CURRENT_PROJECT_VERSION`) can start at `1` again for each new marketing version.
+- `MARKETING_VERSION` is set per target and configuration (app, widget/extensions, tests; Debug and Release). Change every entry: an extension version that differs from the app's is flagged at upload. Check both on the built product, e.g. `PlistBuddy … <App>.app/PlugIns/*.appex/Info.plist`.
 - **xcodegen trap:** xcodegen writes a fixed `CFBundleShortVersionString = 1.0` / `CFBundleVersion = 1` into `Info.plist`, so `MARKETING_VERSION` is ignored. Add to `info.properties`:
   ```yaml
   CFBundleShortVersionString: "$(MARKETING_VERSION)"
@@ -82,7 +87,7 @@ Users with a non-English device language saw English because the app had only `e
 
 - **Only one version can be in progress.** While a version is `WAITING_FOR_REVIEW` or `IN_REVIEW`, you cannot create the next one. Either wait for the result, or remove the version from review (it becomes `DEVELOPER_REJECTED`), change its `versionString`, attach the new build, and resubmit. That loses its place in the review queue, so ask the user first.
 - A **live version is not editable**. Name, subtitle, description, keywords, and screenshots change only with a new version. Only `promotionalText` can change at any time.
-- Create the version (ask first): `POST /v1/appStoreVersions` `{platform: IOS, versionString}` → state `PREPARE_FOR_SUBMISSION`. This also creates a second, editable **AppInfo** (`PREPARE_FOR_SUBMISSION`) next to the live one (`READY_FOR_SALE`).
+- Create the version (ask first): `POST /v1/appStoreVersions` `{platform: IOS, versionString}` → state `PREPARE_FOR_SUBMISSION`. No build is needed yet, so create it and write the listing while the build runs. This also creates a second, editable **AppInfo** (`PREPARE_FOR_SUBMISSION`) next to the live one (`READY_FOR_SALE`).
 - Two levels of localization:
   - `appInfoLocalizations` (on the editable AppInfo): `name`, `subtitle`, `privacyPolicyUrl`.
   - `appStoreVersionLocalizations` (on the version): `description`, `keywords`, `promotionalText`, `whatsNew`, `supportUrl`, `marketingUrl`.
@@ -150,15 +155,17 @@ So the first setup must happen once in Xcode. After that, `xcloud.py` (in this f
 - Scripting Xcode's workflow editor through Accessibility did not work for deleting start conditions; neither Delete nor ⌘⌫ removed them. Edit the workflow through the API instead.
 - **"Latest Release" Xcode can lag behind.** On release day it still meant Xcode 27.0 while 27.1 was listed separately. Pin the exact version when the app needs a newer SDK (`xcloud.py xcode` lists them).
 - `buildDistributionAudience: INTERNAL_ONLY` builds can never be submitted to the App Store. Use `APP_STORE_ELIGIBLE`.
-- Xcode Cloud numbers builds from 1 for each new version.
+- **`audience=None` (Deployment Preparation "None") archives but never uploads.** Runs show `SUCCEEDED`, yet nothing reaches TestFlight, and the archive keeps the project's `CURRENT_PROJECT_VERSION`. `show` prints the audience. To ship such a run without changing the workflow, download its archive (`artifact N ARCHIVE <new dir>`) and upload it with Phase 5's `-exportArchive` (ask first). The binary keeps the release Xcode that built it (`DTXcode` in its `Info.plist`), which avoids the beta-Xcode problem below.
+- With `APP_STORE_ELIGIBLE`, Xcode Cloud numbers builds from 1 for each new version.
+- Builds made with a **beta** Xcode can go to TestFlight but cannot be submitted for review. Check `DTXcodeBuild` in the archive's `Info.plist` before Phase 6.
 - Without `ITSAppUsesNonExemptEncryption` in `Info.plist`, every build waits for an export-compliance answer (see Phase 6, step 1).
 
 **Turn Default into a tag release workflow:**
 
 ```bash
-python3 xcloud.py --bundle-id com.example.App show                      # workflow ID, current triggers
-python3 xcloud.py --bundle-id com.example.App tag-release <WORKFLOW_ID> --scheme App --xcode "Xcode 27.1"           # dry run
-python3 xcloud.py --bundle-id com.example.App tag-release <WORKFLOW_ID> --scheme App --xcode "Xcode 27.1" --apply   # ask first
+python3 -I xcloud.py --bundle-id com.example.App show                      # workflow ID, current triggers
+python3 -I xcloud.py --bundle-id com.example.App tag-release <WORKFLOW_ID> --scheme App --xcode "Xcode 27.1"           # dry run
+python3 -I xcloud.py --bundle-id com.example.App tag-release <WORKFLOW_ID> --scheme App --xcode "Xcode 27.1" --apply   # ask first
 ```
 
 This sets: start on tags with prefix `v`, manual start on tags only, no branch trigger, one **Archive – iOS** action with `APP_STORE_ELIGIBLE`, and the pinned Xcode.
@@ -169,10 +176,27 @@ This sets: start on tags with prefix `v`, manual start on tags only, no branch t
 
 ```bash
 git tag v1.0.2 && git push origin v1.0.2                 # ask first: this uploads a build
-python3 xcloud.py --bundle-id com.example.App runs 1      # run, actions, and the App Store Connect build
+python3 -I xcloud.py --bundle-id com.example.App runs 1      # run, actions, and the App Store Connect build
 ```
 
-Poll `runs` about once a minute. When the run is `COMPLETE SUCCEEDED`, `runs` also shows the build's `processingState`; continue with Phase 6 once it is `VALID`. `xcloud.py start <WORKFLOW_ID> --tag v1.0.2` re-runs a tag build through the API (it counts as a manual start); this command has not been run yet.
+Poll `runs` about once a minute. When the run is `COMPLETE SUCCEEDED`, `runs` also shows the build's `processingState`; continue with Phase 6 once it is `VALID`. `xcloud.py start <WORKFLOW_ID> --tag v1.0.2` (or `--branch main`) starts a clean build through the API; `--branch` was verified in Oct 2026.
+
+**When runs fail** (verified Oct 2026, every run failed for two days):
+
+```bash
+python3 -I xcloud.py --bundle-id <id> runs 10                          # when did failures start, which commit
+python3 -I xcloud.py --bundle-id <id> issues <N>                       # ERROR lines of run N
+python3 -I xcloud.py --bundle-id <id> artifact <N> LOG_BUNDLE <new dir>
+# then read app-store-export-archive-logs/xcodebuild-export-archive.log and */IDEDistributionProvisioning.log
+```
+
+| Log says | Cause | Fix |
+|---|---|---|
+| Compile `error:` in a package (e.g. RevenueCat `init(stringRepresentation:)`) | Package too old for the Xcode version | Raise the package's `minimumVersion` in the `.pbxproj` `XCRemoteSwiftPackageReference`, run `xcodebuild -resolvePackageDependencies`, commit both files |
+| `Exporting for App Store Distribution failed` → `Automatic signing cannot update bundle identifier "<id>"` + `No profiles for '<id>' were found` | The entitlements need a capability the App ID does not have; Xcode Cloud may not add it. The widget/extension still gets its profile | `capabilities <App>.entitlements` lists what is missing. Then (ask first) run Phase 5's local `xcodebuild archive … -allowProvisioningUpdates` with the Apple ID signed in to Xcode: it adds the capabilities and registers the iCloud container. The public API cannot assign iCloud containers. Do not upload that local archive; re-run Xcode Cloud |
+
+- `Unable to authenticate with App Store Connect (… Session Proxy Provider …)` appears in failing and in succeeding exports. It is not the cause; read on to the `error: exportArchive` lines.
+- `issues` only says "download the logs artifact"; the cause is always in the log bundle.
 
 **No post-actions through the API:** TestFlight tester-group distribution (a post-action) cannot be set through `ciWorkflows`. Add it in Xcode or App Store Connect if needed, or enable automatic distribution on the internal group.
 
@@ -186,7 +210,7 @@ Poll `runs` about once a minute. When the run is `COMPLETE SUCCEEDED`, `runs` al
 6. Verify: `GET /v1/appStoreVersions/{id}?include=build` → `appStoreState: WAITING_FOR_REVIEW` and the correct build.
 7. Tell the user the `releaseType` (default `AFTER_APPROVAL` = goes live automatically). They can change it to `MANUAL` before approval. Review usually takes 24–48 h.
 
-Age rating, App Privacy, pricing, and content rights carry over from the earlier version. Re-check App Privacy if the release adds SDKs or data collection.
+Age rating, App Privacy, pricing, and content rights carry over from the earlier version. Re-check App Privacy if the release adds SDKs or data collection. If the app uses CloudKit, confirm with the user that the schema is deployed to Production (Phase 0, step 8) before you submit.
 
 ## Phase 7 — Wrap up
 
