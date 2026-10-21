@@ -1,6 +1,6 @@
 ---
 name: publish-ios-app-store
-description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, editing App Store Connect listings or versions, automating App Store Connect with the API, xcodebuild, xcodegen, or Xcode Cloud tag builds, or when Xcode Cloud builds fail or never reach TestFlight ("Exporting for App Store Distribution failed", "Automatic signing cannot update bundle identifier", "No profiles for ... were found").
+description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, making or uploading localized App Store screenshots, editing App Store Connect listings or versions, automating App Store Connect with the API, xcodebuild, xcodegen, or Xcode Cloud tag builds, or when Xcode Cloud builds fail or never reach TestFlight ("Exporting for App Store Distribution failed", "Automatic signing cannot update bundle identifier", "No profiles for ... were found").
 ---
 
 # Publishing an iOS app to the App Store
@@ -49,13 +49,13 @@ export ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> ASC_KEY_PATH=~/.appstorecon
 python3 -I asc.py --bundle-id com.example.App status     # read-only: app infos, versions, localizations
 python3 -I asc.py --bundle-id com.example.App builds     # read-only: builds, processing state, export compliance
 python3 -I asc.py --bundle-id com.example.App create-version 1.0.1               # ask first
-python3 -I asc.py --bundle-id com.example.App apply appstore/metadata/vi.json --dry-run
+python3 -I asc.py --bundle-id com.example.App apply appstore/metadata/<locale>.json --dry-run
 python3 -I asc.py --bundle-id com.example.App submit 1.0.1 1 --no-encryption     # ask first; Phase 6 in one step
 ```
 
 ## Phase 2 — Localize the app (if the release adds languages)
 
-Users with a non-English device language saw English because the app had only `en` and no string catalog. To fix it (examples use Vietnamese, `vi`):
+Users with a non-English device language saw English because the app had only `en` and no string catalog. To fix it (`<lang>` below is the new language code, for example `ja` or `de`):
 
 - Add `Resources/Localizable.xcstrings` (`"sourceLanguage": "en"`). Generate it with Python from an `{english: translation}` dict, using `"extractionState": "manual"` and `stringUnit.state: "translated"`. Count the keys and validate the JSON.
 - SwiftUI **string literals** in `Text("…")`, `Button("…")`, `Label`, `Section`, `TextField`, `.navigationTitle("…")`, and `.alert("…")` are already `LocalizedStringKey`. They only need catalog entries. Interpolation becomes a format key: `Text("\(n) words")` → `"%lld words"`, a `String` → `%@`.
@@ -66,10 +66,10 @@ Users with a non-English device language saw English because the app had only `e
   - Notification content, `LAContext.localizedReason`, `localizedFallbackTitle`.
   - **Seeded data** (built-in templates saved in SwiftData) → store English and localize when displayed: `isBuiltIn ? String(localized: String.LocalizationValue(name)) : name`. If you localize when seeding, the language is frozen at first launch.
 - Permission strings → `InfoPlist.xcstrings`, keyed by `NSFaceIDUsageDescription` and the other usage-description keys.
-- Add `CFBundleLocalizations: [en, vi]` (xcodegen `info.properties`) and `options.developmentLanguage: en`. After `xcodegen generate`, `knownRegions` must list the new language.
+- Add `CFBundleLocalizations: [en, <lang>]` (xcodegen `info.properties`) and `options.developmentLanguage: en`. After `xcodegen generate`, `knownRegions` must list the new language.
 - **Hardcoded prices are wrong in other storefronts.** Show RevenueCat's `offerings().current?.lifetime?.localizedPriceString` (or `storeProduct.localizedPriceString`), and keep a fallback until offerings load. Then turn the price keys into format keys (`"Pay %@"`).
 - Check the built `.app` contains `<lang>.lproj`. Run in that language without changing simulator settings:
-  `xcrun simctl launch <udid> <bundleId> -AppleLanguages "(vi)" -AppleLocale vi_VN`, then take screenshots of the main screens.
+  `xcrun simctl launch <udid> <bundleId> -AppleLanguages "(<lang>)" -AppleLocale <lang>_<REGION>`, then take screenshots of the main screens.
 - If there is an Android app too, use the same terms on both platforms (for example the names of features and screens).
 
 ## Phase 3 — Version number
@@ -93,10 +93,44 @@ Users with a non-English device language saw English because the app had only `e
   - `appStoreVersionLocalizations` (on the version): `description`, `keywords`, `promotionalText`, `whatsNew`, `supportUrl`, `marketingUrl`.
 - Creating a new `appInfoLocalization` for a locale **also creates an empty version localization**. So "create-or-update" by locale, and PATCH when one exists.
 - The new version copies `description`/`keywords`/URLs from the live version but **not `promotionalText` or `whatsNew`**. Copy the promo text over. `whatsNew` is required for updates.
-- Limits: name 30, subtitle 30, keywords 100 (comma-separated, no spaces needed), promotional text 170, description 4000. Count with Python `len()` before upload. Locale codes are App Store codes: `en-US`, `vi`, `ja`, `zh-Hans`, and so on.
+- Limits: name 30, subtitle 30, keywords 100 (comma-separated, no spaces needed), promotional text 170, description 4000. Count with Python `len()` before upload. Locale codes are App Store codes: `en-US`, `en-CA`, `ja`, `zh-Hans`, and so on.
 - Translate from the **live** English text (read with `status`), not from memory. Remove storefront-specific prices ("$7.99") from translated descriptions. Do not repeat a claim the code makes false.
-- Screenshots: a locale without its own screenshots uses the primary language's screenshots, so a new language can ship without new screenshots.
+- Screenshots: a locale without its own screenshots uses the primary language's screenshots, so a new language can ship without new screenshots. To make localized ones, see Phase 4b.
 - After every write, read the data again with `status` and show the result to the user.
+
+## Phase 4b — Localized screenshots
+
+Make one captioned set for the primary language and one for each localized language. Storefronts without their own set show the primary set.
+
+**Size and simulator**
+- Upload the 6.9" iPhone size, 1320×2868 (`APP_IPHONE_67`). Apple scales it for smaller iPhones, so remove the old `APP_IPHONE_65` set.
+- Use a Pro Max simulator for this app only (`iPhone <N> Pro Max - <App>`). The newest runtime may refuse Pro Max device types (`simctl create` → `Incompatible device`). Then create it on the previous runtime. Check one capture with `sips -g pixelWidth -g pixelHeight`.
+- Fix the status bar first: `xcrun simctl status_bar <udid> override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100`.
+- Build with the default DerivedData. A `-derivedDataPath` inside the project made the Crashlytics run script fail with `Operation not permitted` under script sandboxing.
+
+**Repeatable captures with Debug launch arguments**
+Taps in the simulator need the user's permission and differ per language. Add `#if DEBUG` launch arguments instead, so one script captures every screen in every language:
+- `-seedScreenshotData`: fill realistic sample data (birth date, entries, events …) and turn on the debug Pro bypass. Write the sample text in the language the app runs in (`Bundle.main.preferredLocalizations.first`). Mark the seed type `@MainActor` when it changes `@MainActor` objects; Xcode 27.1 fails the build otherwise.
+- `-screenshotScreen <name>`: open one sheet or screen from the root view's `.onAppear` (set the `@State` that presents it). Skip the review prompt when it runs.
+- An image the app renders (a share card) can be written to `Documents/` and copied out with `xcrun simctl get_app_container <udid> <bundleId> data`.
+- Loop per language: `xcrun simctl terminate`, then `xcrun simctl launch <udid> <bundleId> -seedScreenshotData -screenshotScreen <name> -AppleLanguages "(<lang>)" -AppleLocale <lang>_<REGION>`, wait ~5 s, `xcrun simctl io <udid> screenshot raw/<locale>/<name>.png`.
+- Keep the script as `appstore/screenshots/capture.sh <udid>`.
+
+**Framing** (`appstore/screenshots/make_screenshots.py`, Pillow)
+- macOS Python has no Pillow, and the system Python refuses `pip install`. Use a venv: `python3 -m venv ~/.venvs/screenshots && ~/.venvs/screenshots/bin/pip install pillow`.
+- Layout per image: a vertical gradient taken from the app icon colors, a bold title (~112 px, `/System/Library/Fonts/SFNS.ttf` with variation `Bold`), a one-line or two-line subtitle (~52 px), then the capture scaled to 80 % with ~96 px rounded corners, a thin bezel and a soft shadow, running off the bottom edge. Show a share image whole, like a card, not in a phone.
+- `CAPTIONS = {locale: [(title, subtitle), …]}`, one entry per screen in App Store order. The first three screens matter most: lead with the core screen.
+- SF covers Latin scripts with diacritics. Japanese needs Hiragino (`ヒラギノ角ゴシック W7.ttc` / `W4.ttc`) and wrapping by character.
+- Read a contact sheet of all images in every language before you finish. Rewrite any title or subtitle whose last line is one word; translated captions are often longer than the English ones.
+- Folder names are App Store locale codes: `raw/<locale>/` and `out/<locale>/`. Name the primary set after the app's primary locale (read it with `status`; it may be `en-CA`, not `en-US`).
+- Commit `capture.sh`, `make_screenshots.py` and `raw/`. Add `out/` to `.gitignore`, because it is generated.
+
+**Upload** (ask first; it replaces the version's screenshots)
+- The version must be editable, and each locale must already have an `appStoreVersionLocalization`. Apply the metadata files first.
+- Per locale: `GET /appStoreVersionLocalizations/{id}/appScreenshotSets`, delete the `APP_IPHONE_67` and `APP_IPHONE_65` sets, `POST /appScreenshotSets` `{screenshotDisplayType: APP_IPHONE_67}` with the localization relationship.
+- Per image: `POST /appScreenshots` `{fileName, fileSize}` with the set relationship, send each `uploadOperations` chunk (its `method`, `url` and `requestHeaders`), then `PATCH /appScreenshots/{id}` `{uploaded: true, sourceFileChecksum: <md5 hex>}`.
+- Poll `assetDeliveryState.state` until every image is `COMPLETE` (or `FAILED`). Images upload in file-name order, so name them `1.png` … `6.png`.
+- Support `--dry-run` that prints what each locale would delete and upload. Run it and show the output before the real run.
 
 ## Phase 5 — Archive and upload (ask first)
 
