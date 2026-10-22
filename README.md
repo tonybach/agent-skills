@@ -6,6 +6,7 @@ Reusable skills for coding agents (Claude Code and other tools that read `SKILL.
 
 | Skill | Use it when |
 |-------|-------------|
+| [build-app-product-page](skills/build-app-product-page/SKILL.md) | Creating or updating a product page for an iOS or Android app: copy that matches the live release, privacy text that matches the SDKs, light and dark screenshots from the simulator, and checks before you push. |
 | [publish-android-play](skills/publish-android-play/SKILL.md) | Preparing, uploading, or releasing an Android app on Google Play: signing, store assets, Play Console forms, one-time products and subscriptions with RevenueCat, fastlane or the Play Developer API. |
 | [publish-ios-app-store](skills/publish-ios-app-store/SKILL.md) | Localizing, uploading, or submitting an iOS app: String Catalogs, App Store Connect API listings and versions, localized App Store screenshots (capture, captioned framing, upload), xcodebuild archive and upload, Xcode Cloud tag builds and failed-run diagnosis (signing, missing App ID capabilities, archive-only workflows), review submission. |
 | [support-iphone-duo](skills/support-iphone-duo/SKILL.md) | Adapting an iOS app to iPhone Duo: resizable layouts for every fold pose, the iOS 27.1 vertical toolbar, Xcode 27.1 build fixes, and scripted testing of the app and its widgets in the Duo simulator and Device Hub. |
@@ -25,6 +26,7 @@ Update later with `claude plugin update agent-skills`.
 
 ```bash
 git clone https://github.com/tonybach/agent-skills.git
+cp -R agent-skills/skills/build-app-product-page ~/.claude/skills/
 cp -R agent-skills/skills/publish-android-play ~/.claude/skills/
 cp -R agent-skills/skills/publish-ios-app-store ~/.claude/skills/
 cp -R agent-skills/skills/support-iphone-duo ~/.claude/skills/
