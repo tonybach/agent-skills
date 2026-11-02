@@ -1,6 +1,6 @@
 ---
 name: support-iphone-duo
-description: Use when making an iOS app or its widgets work on iPhone Duo (Apple's foldable iPhone), testing in the iPhone Duo simulator or Xcode Device Hub, adapting a portrait-only SwiftUI iPhone app to resizable windows, wide or short layouts, vertical toolbars, or iOS 27.1 SDK changes, or when Xcode 27.1 builds fail after upgrading.
+description: Use when making an iOS app or its widgets work on iPhone Duo (Apple's foldable iPhone), testing in the iPhone Duo simulator or Xcode Device Hub, adapting a portrait-only SwiftUI or Flutter iPhone app to resizable windows, wide or short layouts, vertical toolbars, or iOS 27.1 SDK changes, or when Xcode 27.1 builds fail after upgrading.
 ---
 
 # Supporting iPhone Duo
@@ -110,6 +110,18 @@ LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) { ... }
 - `ForEach(Calendar.current.veryShortWeekdaySymbols, id: \.self)` drops the repeated "S" and "T". Wide layouts make the missing columns obvious. Use `Array(symbols.enumerated())` with `id: \.offset`.
 - Page indicators overlaid at the bottom collide with scrolled content. Put the pinned actions in a `safeAreaInset(edge: .bottom)` with a background, and keep the dots in the inset's bottom padding.
 
+**Flutter apps.** Flutter resizes with the window on its own, but two Duo layouts break by default:
+
+- **Right-edge status bar (closed).** Flutter reports it as a right inset, and only widgets inside a `SafeArea` respect it. Screens without one (settings lists, pushed pages) draw cards under the status bar. Fix it once for every route in `MaterialApp.builder`:
+  ```dart
+  builder: (context, child) => ColoredBox(
+    color: Theme.of(context).scaffoldBackgroundColor,
+    child: SafeArea(top: false, bottom: false, child: child ?? const SizedBox.shrink()),
+  ),
+  ```
+- **Bottom sheets in the closed, turned pose (466 pt tall).** A default `showModalBottomSheet` with a `Column` overflowed by 61 px and hid its primary button, and inside a `StatefulShellRoute` it opened behind the tab bar. Use one helper for every sheet: `useRootNavigator: true`, `isScrollControlled: true`, a `maxHeight` of 90% of the window, and the content in a `SingleChildScrollView`.
+- Put content in a centered `ConstrainedBox` (about 560 pt) and switch the bottom `NavigationBar` to a `NavigationRail` at 760 pt or wider, which covers the open poses.
+
 ## Phase 4: Build with Xcode 27.1
 
 - **RevenueCat 5.59.0 does not compile** with the Xcode 27.1 Swift compiler: `PaywallColor.swift: error: invalid redeclaration of synthesized memberwise 'init(stringRepresentation:)'`. 5.96.0 works. A `majorVersion: 5.0.0` range does not help, because `Package.resolved` pins the old version, and `xcodebuild -resolvePackageDependencies` reuses the cached checkout.
@@ -144,13 +156,17 @@ Never shut down or erase a device you did not create. The simulator UI is **Devi
 
 **Driving the app:** Use a temporary UI-testing target (the template above) and remove it before you commit. Launch arguments `-key value` override `@AppStorage` / `UserDefaults` for one launch: `["-hasCompletedOnboarding", "NO"]`. To write persistent prefs instead, run `xcrun simctl spawn <udid> defaults write <data-container>/Library/Preferences/<bundle-id> key -type value`. A host-side `defaults write` to that plist is ignored, because the simulator's `cfprefsd` caches values. For prefs in an **App Group** (shared with widgets), get the folder with `xcrun simctl get_app_container <udid> <bundle-id> group.<id>` and write to `<that folder>/Library/Preferences/group.<id>` the same way; terminate the app first. This is also how to turn on a DEBUG-only premium flag for testing paid screens.
 
+**Flutter runs:** a debug `.app` from `flutter build ios --simulator --debug`, launched without the Flutter tool, shows a blank white screen. Run it with `flutter run -d <udid>` instead. To hot reload from a script, start it with stdin from a FIFO (`mkfifo in; tail -f /dev/null > in & flutter run -d <udid> < in`) and write `r` or `R` into the FIFO.
+
+**Closed, turned without Device Hub:** the Claude Code iOS Simulator panel's `rotate` action turns the closed Duo to 678 x 466 pt. This pose catches most clipping and overflow bugs, so check it even when Device Hub is out of reach.
+
 **Poses (the hard part):**
 - `simctl` has no fold/hinge command. `simctl io screenConfig ... power off` does not fold the device. XCUITest has no fold API, and `XCUIDevice.shared.orientation` **does nothing** on the Duo.
 - Only Device Hub can change poses. Use its window buttons **Closed**, **Partially Open** (Book), **Open** and **Rotate Right**. Its menus (**Controls → Rotate Left/Right**, **Device → Orientation**) could not be reached through Accessibility.
 - With the user's Accessibility permission, `scripts/devicehub.swift` presses those buttons. Build it once into a scratch folder (`swiftc -O scripts/devicehub.swift -o <scratch>/devicehub`), then run `<scratch>/devicehub press "Open"`. If the user has not granted permission yet, say what it allows and that they can turn it off afterwards; without it, ask them to press the pose buttons.
 - **Rotate Right cycles four orientations, and one of them is upside-down portrait.** iPhone apps without `UIInterfaceOrientationPortraitUpsideDown`, and the iPhone Home Screen, ignore that one. So a press can seem to do nothing. Check the screenshot's width and height after each press, and count presses (four bring you back to the start). `devicehub menu Controls "Rotate Right"` reported "menu item not found"; the window button works. System Events cannot see Device Hub's window (it reports unix id 0), and `NSRunningApplication` reports pid -1, so the script uses the AX API with the pid from `pgrep`.
 - **Do not quit Device Hub.** Quitting it shuts down the booted Duo. After a restart, its window's accessibility tree was broken for a while (the window reported itself as the app, recursively), so pose buttons and device menu items were unreachable. It recovered later on its own. If `./devicehub dump` shows no buttons, wait and retry rather than restarting again. Change poses in one Device Hub session where you can, in this order: Closed (default after boot) → Rotate Right → back → Open → Rotate Right → back → Partially Open.
-- Device Hub can show several devices. `dump` prints the window title (for example `iPhone Duo – iOS 27.1`). Check that it names the Duo before you press anything.
+- Device Hub can show several devices. `dump` prints the window title (for example `iPhone Duo – iOS 27.1`). Check that it names the Duo before you press anything. Device Hub may open on another session's device, and `devicehub` cannot select a device in the sidebar. If the title names a device you did not create, do not press pose buttons: ask the user to select your Duo, or verify with `rotate` only.
 - Cover at least: closed, closed turned, open, open turned, Book. Book has the same window size as open, but sheets anchor to the leading half.
 - The Duo has Touch ID, not Face ID. Biometric lock screens fall back to the passcode prompt until you choose **Device → Touch ID → Enrolled**.
 
