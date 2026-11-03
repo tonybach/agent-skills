@@ -121,6 +121,8 @@ LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) { ... }
   ```
 - **Bottom sheets in the closed, turned pose (466 pt tall).** A default `showModalBottomSheet` with a `Column` overflowed by 61 px and hid its primary button, and inside a `StatefulShellRoute` it opened behind the tab bar. Use one helper for every sheet: `useRootNavigator: true`, `isScrollControlled: true`, a `maxHeight` of 90% of the window, and the content in a `SingleChildScrollView`.
 - Put content in a centered `ConstrainedBox` (about 560 pt) and switch the bottom `NavigationBar` to a `NavigationRail` at 760 pt or wider, which covers the open poses.
+- **Quiz or lesson screens in the closed, turned pose.** A mascot (about 100 pt), large speaker buttons and an empty answer area above a pinned **Check** button pushed the word tiles and answer options below the fold at 466 pt. No overflow error shows, because the area scrolls. Check `MediaQuery.sizeOf(context).height < 520` and then shrink decorative art and big buttons, cut gaps, and put art beside the controls instead of above them.
+- **Paywalls.** At 466 x 678 and 678 x 466 pt, a stacked paywall (art, feature list, plans, buy button) hid the plans and the button below the fold. Put plans and the button beside the features when the window is 760 pt wide, or short (under 520 pt) and at least 600 pt wide. When short, also pin the buy button and terms under the scrolling plans.
 
 ## Phase 4: Build with Xcode 27.1
 
@@ -155,6 +157,10 @@ Never shut down or erase a device you did not create. The simulator UI is **Devi
 - Pass `TEST_RUNNER_SHOT_DIR=... TEST_RUNNER_POSE=...` to `xcodebuild test`; the test reads them as `SHOT_DIR` and `POSE`. The simulator shares the host file system, so the test can write marker files to a host path.
 
 **Driving the app:** Use a temporary UI-testing target (the template above) and remove it before you commit. Launch arguments `-key value` override `@AppStorage` / `UserDefaults` for one launch: `["-hasCompletedOnboarding", "NO"]`. To write persistent prefs instead, run `xcrun simctl spawn <udid> defaults write <data-container>/Library/Preferences/<bundle-id> key -type value`. A host-side `defaults write` to that plist is ignored, because the simulator's `cfprefsd` caches values. For prefs in an **App Group** (shared with widgets), get the folder with `xcrun simctl get_app_container <udid> <bundle-id> group.<id>` and write to `<that folder>/Library/Preferences/group.<id>` the same way; terminate the app first. This is also how to turn on a DEBUG-only premium flag for testing paid screens.
+
+**Flutter screen tour:** there is no need for an XCUITest target. Add a temporary Dart file that runs only with `--dart-define=DUO_TOUR=<host dir>`. After the first frame it walks every route with the app's `GoRouter` (`go` for tabs, `push` with built `extra` arguments for pushed pages, one lesson per exercise type), writes `<pose>-<id>.ready` into the host folder, and waits for `<id>.done` from `scripts/duo-capture-watcher.sh`. Run one `flutter run` per pose with `--dart-define=DUO_POSE=<pose>`, then `grep overflowed` in the run log. The log catches overflow, but only screenshots catch content pushed below the fold. Delete the file and its hook before you commit.
+
+The panel tool's first screenshot after a tap can still show the screen from before the tap. Take a second screenshot before you judge a change.
 
 **Flutter runs:** a debug `.app` from `flutter build ios --simulator --debug`, launched without the Flutter tool, shows a blank white screen. Run it with `flutter run -d <udid>` instead. To hot reload from a script, start it with stdin from a FIFO (`mkfifo in; tail -f /dev/null > in & flutter run -d <udid> < in`) and write `r` or `R` into the FIFO.
 
