@@ -6,6 +6,7 @@ Reusable skills for coding agents (Claude Code and other tools that read `SKILL.
 
 | Skill | Use it when |
 |-------|-------------|
+| [adding-flutter-home-widgets](skills/adding-flutter-home-widgets/SKILL.md) | Adding a home screen widget to a Flutter app on iOS and Android with `home_widget`: a script that adds the WidgetKit extension target from the terminal, the build errors it avoids, values that stay right after midnight, and drawing Flutter images for the widget without crashes. |
 | [build-app-product-page](skills/build-app-product-page/SKILL.md) | Building or updating an app's website on GitHub Pages: product page, privacy policy and terms of use, the URLs in the app and store listings, link previews, structured data and sitemaps, light and dark screenshots, and keeping it all in line with the live release and the SDKs the app ships. |
 | [publish-android-play](skills/publish-android-play/SKILL.md) | Preparing, uploading, or releasing an Android app on Google Play: signing, store assets, Play Console forms, one-time products and subscriptions with RevenueCat, fastlane or the Play Developer API. |
 | [publish-ios-app-store](skills/publish-ios-app-store/SKILL.md) | Localizing, uploading, or submitting an iOS app: String Catalogs, App Store Connect API listings and versions, localized App Store screenshots (capture, captioned framing, upload), xcodebuild archive and upload, Xcode Cloud tag builds and failed-run diagnosis (signing, missing App ID capabilities, archive-only workflows), review submission. |
@@ -26,6 +27,7 @@ Update later with `claude plugin update agent-skills`.
 
 ```bash
 git clone https://github.com/tonybach/agent-skills.git
+cp -R agent-skills/skills/adding-flutter-home-widgets ~/.claude/skills/
 cp -R agent-skills/skills/build-app-product-page ~/.claude/skills/
 cp -R agent-skills/skills/publish-android-play ~/.claude/skills/
 cp -R agent-skills/skills/publish-ios-app-store ~/.claude/skills/
