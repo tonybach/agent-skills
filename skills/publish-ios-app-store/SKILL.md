@@ -27,6 +27,7 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 6. Public listing without credentials: `curl "https://itunes.apple.com/lookup?id=<appStoreId>&country=us"` (or `?bundleId=<bundle id>`) gives the name, live version, and description (not the subtitle or keywords). The next `MARKETING_VERSION` must be higher than the live version.
 7. **Capabilities against the App ID:** `python3 -I xcloud.py --bundle-id <id> capabilities <App>.entitlements`. A capability added to the code (iCloud, Push, …) but not to the App ID builds fine on the Mac, because Xcode adds it there. On Xcode Cloud it breaks every archive export (Phase 5b).
 8. **CloudKit:** if the entitlements use CloudKit, the user must deploy the schema to Production before the release, or sync fails for App Store users. CloudKit Console → **CloudKit Database** → the container → select the **Development** environment → **Deploy Schema Changes…** at the bottom of the left sidebar (hidden while Production is selected).
+9. **Third-party AI consent (guideline 5.1.2(i), since Nov 2025):** grep for calls to an AI provider in the app and its backend (`anthropic`, `openai`, `generativelanguage`, edge functions). If user text, voice or images reach one, the app must ask in the app before the first request: name the provider, say what is sent, offer Allow and Not now, send nothing until Allow, and let the user withdraw it in Settings. The privacy policy and review notes alone do not count. Say in the review notes where the prompt appears.
 
 ## Phase 1 — App Store Connect API access
 
