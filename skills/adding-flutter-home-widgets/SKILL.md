@@ -44,7 +44,9 @@ if (foreground && _drawnFor != key) { /* renderFlutterWidget(...) */ }
 - Draw only when the image changes (for example the mascot's hat), not on every update.
 - Call the widget update last, after notifications and other startup work, so its wait never delays them.
 - Wrap it all in `try`/`catch`: a widget must never break the app.
-- The call saves the PNG path under the given key. Native code reads that key and loads the file: `UIImage(contentsOfFile:)` with `UserDefaults(suiteName: appGroup)` on iOS, `BitmapFactory.decodeFile` then `setImageViewBitmap` on Android. Hide the image view when the file is missing.
+- The call saves the PNG path under the given key. Native code reads that key and loads the file: `UIImage(contentsOfFile:)` with `UserDefaults(suiteName: appGroup)` on iOS, `BitmapFactory.decodeFile` then `setImageViewBitmap` on Android.
+- The file is missing until the app opens and draws it: in the widget gallery, on a fresh install, and in the Android picker preview (it uses the layout). Do not hide the image or show an emoji there. Bundle a default PNG in the widget's Asset Catalog and in `res/drawable-nodpi`, fall back to it in code, and set it as `android:src` in the layout.
+- Draw the default PNGs from the same painter with a script run by `flutter test` (`RepaintBoundary`, then `toImage` inside `tester.runAsync`). Tests use a blank font, so text draws as boxes. Load the real font with `FontLoader` and `await loader.load()` directly in the test body; inside `tester.runAsync` the load hangs.
 - Images that never change can be static assets instead (Asset Catalog and `res/drawable-nodpi`).
 
 ## Verify
