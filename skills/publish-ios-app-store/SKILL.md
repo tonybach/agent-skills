@@ -106,6 +106,9 @@ Users with a non-English device language saw English because the app had only `e
 - The new version copies `description`/`keywords`/URLs from the live version but **not `promotionalText` or `whatsNew`**. Copy the promo text over. `whatsNew` is required for updates.
 - Limits: name 30, subtitle 30, keywords 100 (comma-separated, no spaces needed), promotional text 170, description 4000. Count with Python `len()` before upload. Locale codes are App Store codes: `en-US`, `en-CA`, `ja`, `zh-Hans`, and so on.
 - Keywords: never use another app's or company's name (Apple rejects trademarks in keywords). Do not repeat words from the name or subtitle: Apple indexes those already, so repeats waste characters.
+- **The version string must match the build exactly.** A version named `1.0` does not take a `1.0.0` build (Flutter builds use `x.y.z` from `pubspec.yaml`). Compare with the build's `CFBundleShortVersionString` and fix it while the version is editable: `PATCH /v1/appStoreVersions/{id}` `{versionString}`.
+- **A first release needs fields an update copies over:** primary and secondary category (`PATCH /v1/appInfos/{id}` relationships `primaryCategory`/`secondaryCategory`, IDs such as `EDUCATION`), the age rating questionnaire (`PATCH /v1/ageRatingDeclarations/{appInfoId}`; booleans for `advertising`, `userGeneratedContent`, …, `NONE`/`INFREQUENT_OR_MILD`/`FREQUENT_OR_INTENSE` for the content levels; read back `appInfos.appStoreAgeRating`), the content rights declaration (`PATCH /v1/apps/{id}` `contentRightsDeclaration`), App Review details (`POST /v1/appStoreReviewDetails`; `contactPhone` is required, with `+` and the country code), and the app price (see Phase 6). App Privacy has no API: the user signs in and you fill it in the browser.
+- Answer the age rating from the content, not from the target rating. A course or story that mentions drinking is `alcoholTobaccoOrDrugUseOrReferences: INFREQUENT_OR_MILD`, which gives 12+. Display names shown to other users count as user-generated content.
 - Family Sharing on an auto-renewable subscription or non-consumable **cannot be turned off** after you turn it on. Ask the user before you enable it. Name the family plan in the subscription terms of the description.
 - Translate from the **live** English text (read with `status`), not from memory. Remove storefront-specific prices ("$7.99") from translated descriptions. Do not repeat a claim the code makes false.
 - Screenshots: a locale without its own screenshots uses the primary language's screenshots, so a new language can ship without new screenshots. To make localized ones, see Phase 4b.
@@ -174,6 +177,8 @@ xcodebuild -exportArchive -archivePath build/App-1.0.1.xcarchive \
 - Success ends with `Upload succeeded` / `** EXPORT SUCCEEDED **`.
 - `Upload Symbols Failed ... FirebaseAnalytics.framework / GoogleAppMeasurement*.framework` warnings come from Google's prebuilt binaries. They are harmless.
 - Before upload, check the archive: `Info.plist` version and build, and `<lang>.lproj` folders present.
+- **Flutter:** `flutter build ipa --release --export-options-plist=ios/ExportOptions.plist` (the plist above, kept in the repo) archives, cloud-signs, and uploads in one step. Then Flutter fails with `Directory listing failed, path = '.../build/ios/ipa/'`: an upload export writes no `.ipa`, so the upload itself may have worked. Check before you retry. A second `xcodebuild -exportArchive` of the same archive answers `Redundant Binary Upload` when the first one arrived.
+- A new build is not listed in `GET /v1/builds` for the first minutes. An empty list right after upload does not mean the upload failed.
 - Processing takes about 2–30 minutes. Check `GET /v1/builds?filter[app]=<appId>&sort=-uploadedDate&include=preReleaseVersion` until `processingState == VALID`. Note: `filter[preReleaseVersion.version]` returned nothing; use `include` and match the version instead.
 
 ## Phase 5b — Automated builds with Xcode Cloud (alternative to Phase 5)
@@ -258,6 +263,20 @@ python3 -I xcloud.py --bundle-id <id> artifact <N> LOG_BUNDLE <new dir>
 5. `PATCH /v1/reviewSubmissions/{id}` `{"submitted": true}` → `WAITING_FOR_REVIEW`.
 6. Verify: `GET /v1/appStoreVersions/{id}?include=build` → `appStoreState: WAITING_FOR_REVIEW` and the correct build.
 7. Tell the user the `releaseType` (default `AFTER_APPROVAL` = goes live automatically). They can change it to `MANUAL` before approval. Review usually takes 24–48 h.
+
+### First release with in-app purchases or subscriptions
+
+The steps above work for an update. The first submission of products needs more, and the API alone cannot do it (verified Nov 2026):
+
+1. **Review screenshot per product** (a paywall capture is enough), or the product stays `MISSING_METADATA`. Upload like a screenshot (Phase 4b): `POST /v1/subscriptionAppStoreReviewScreenshots` (relationship `subscription`) or `POST /v1/inAppPurchaseAppStoreReviewScreenshots` (relationship `inAppPurchaseV2`, type `inAppPurchases`), send the chunks, then `PATCH` `{uploaded: true, sourceFileChecksum}`. Read the current one of a one-time product under `/v2/inAppPurchases/{id}/appStoreReviewScreenshot`; the `/v1` path returns 404. The products then show `READY_TO_SUBMIT`.
+2. **App price.** "Add for Review" fails with "You must choose a price tier in Pricing" even for a free app. Set it: take the free point from `GET /v1/apps/{id}/appPricePoints?filter[territory]=USA` (`customerPrice` `0.0`), then `POST /v1/appPriceSchedules` with relationships `app`, `baseTerritory` (`USA`) and `manualPrices` (an included `appPrices` item that points to that price point).
+3. `POST /v1/subscriptionSubmissions` and `POST /v1/inAppPurchaseSubmissions` return 409 `FIRST_SUBSCRIPTION_MUST_BE_SUBMITTED_ON_VERSION` / `FIRST_NON_CONSUMABLE_MUST_BE_SUBMITTED_ON_VERSION`, and `reviewSubmissionItems` takes no products. The version page may also show no products section. In the browser (the user signs in):
+   - On the version page, press **Add for Review**. This creates a draft submission; it does not submit.
+   - On each product page (`/apps/<appId>/distribution/subscriptions/<id>` and `/distribution/iaps/<id>`) press **Add for Review** → **Draft iOS Submission**.
+   - Do the same on the **subscription group** page (`/distribution/subscription-groups/<id>`). Without it, submitting fails with `SUBSCRIPTION_SUBMISSION_REQUIRES_GROUP_VERSION`.
+   - The draft panel lists the items ("Items Ready to Submit"). Its **Submit for Review** button can stay disabled with no reason. `PATCH /v1/reviewSubmissions/{id}` `{"submitted": true}` submits the draft, or lists what is missing.
+4. A draft cannot be cancelled (`Resource is not in cancellable state`). To take the version out, delete its item: `DELETE /v1/reviewSubmissionItems/{itemId}`.
+5. Verify every item: the version and each product show `WAITING_FOR_REVIEW`.
 
 Age rating, App Privacy, pricing, and content rights carry over from the earlier version. Re-check App Privacy if the release adds SDKs or data collection. If the app uses CloudKit, confirm with the user that the schema is deployed to Production (Phase 0, step 8) before you submit.
 
