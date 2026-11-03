@@ -94,6 +94,8 @@ Users with a non-English device language saw English because the app had only `e
 - Creating a new `appInfoLocalization` for a locale **also creates an empty version localization**. So "create-or-update" by locale, and PATCH when one exists.
 - The new version copies `description`/`keywords`/URLs from the live version but **not `promotionalText` or `whatsNew`**. Copy the promo text over. `whatsNew` is required for updates.
 - Limits: name 30, subtitle 30, keywords 100 (comma-separated, no spaces needed), promotional text 170, description 4000. Count with Python `len()` before upload. Locale codes are App Store codes: `en-US`, `en-CA`, `ja`, `zh-Hans`, and so on.
+- Keywords: never use another app's or company's name (Apple rejects trademarks in keywords). Do not repeat words from the name or subtitle: Apple indexes those already, so repeats waste characters.
+- Family Sharing on an auto-renewable subscription or non-consumable **cannot be turned off** after you turn it on. Ask the user before you enable it. Name the family plan in the subscription terms of the description.
 - Translate from the **live** English text (read with `status`), not from memory. Remove storefront-specific prices ("$7.99") from translated descriptions. Do not repeat a claim the code makes false.
 - Screenshots: a locale without its own screenshots uses the primary language's screenshots, so a new language can ship without new screenshots. To make localized ones, see Phase 4b.
 - After every write, read the data again with `status` and show the result to the user.
