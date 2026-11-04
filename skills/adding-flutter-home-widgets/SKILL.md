@@ -51,10 +51,28 @@ if (foreground && _drawnFor != key) { /* renderFlutterWidget(...) */ }
 - Draw the default PNGs from the same painter with a script run by `flutter test` (`RepaintBoundary`, then `toImage` inside `tester.runAsync`). Tests use a blank font, so text draws as boxes. Load the real font with `FontLoader` and `await loader.load()` directly in the test body; inside `tester.runAsync` the load hangs.
 - Images that never change can be static assets instead (Asset Catalog and `res/drawable-nodpi`).
 
+## Android layout limits (RemoteViews)
+
+- Negative margins do nothing in a widget layout. To let an image run off the card edge, put it in a `FrameLayout` (which clips) and give the image a fixed height larger than the space left.
+- Size an image from the real widget size: in `onUpdate`, read `appWidgetManager.getAppWidgetOptions(id)` (`OPTION_APPWIDGET_MIN_WIDTH`, `OPTION_APPWIDGET_MAX_HEIGHT`, in dp) and call `views.setViewLayoutHeight(id, dp, TypedValue.COMPLEX_UNIT_DIP)` (API 31+). Override `onAppWidgetOptionsChanged` and call `onUpdate` with `HomeWidgetPlugin.getData(context)`, so the size follows a resize.
+- `setTextColor` with alpha dims an emoji `TextView`. `setFloat(id, "setAlpha", ..)` is not a safe RemoteViews call.
+- A gradient, rays or glow background: use a vector drawable with `aapt:attr` gradients (API 24+) and a rounded `clip-path`. A `<shape>` cannot draw rays.
+
+## Telling users about the widget
+
+Most users never find a widget. Ask once or twice, at a good moment, never on first launch.
+
+- Show a dismissible card after a success (for example a streak of 3 or more), with a small copy of the widget. Ask at most twice, a few days apart, and not at the same moment as the store rating prompt.
+- Skip users who already have one: `HomeWidget.getInstalledWidgets()` returns a non-empty list on both platforms. Also stop after the user taps Add once.
+- **Android:** `HomeWidget.isRequestPinWidgetSupported()`, then `HomeWidget.requestPinWidget(qualifiedAndroidName: ...)` opens the system "Add to home screen" dialog.
+- **iOS:** there is no API to add a widget. Show short steps: touch and hold the Home Screen, tap Edit, then Add Widget, then search for the app.
+- Keep a permanent "Home Screen widget" row in Settings that runs the same flow.
+- Widget tests: the card's check goes over the `home_widget` method channel and `SharedPreferences`. Mock the channel with `setMockMethodCallHandler(const MethodChannel('home_widget'), ...)`, and pump in a loop with `tester.runAsync` until the card text appears. A prefs value can appear before its `await` finishes, so wait for the UI, not the saved value.
+
 ## Verify
 
 - iOS simulator: long-press the home screen, then the edit button, then **Add Widget**. The gallery uses `placeholder` or `getSnapshot`; check real data after you add it.
 - Android: `adb shell dumpsys appwidget | grep <package>` shows the provider. In the launcher, **Widgets** search does not match a name without its accents (search "Cafe" misses "Café"); search for a word in the widget label. `adb shell run-as <package> cat shared_prefs/HomeWidgetPreferences.xml` and `ls files/home_widget` show the saved values and images.
-- `adb uninstall` also removes the placed widget from the Android home screen. Reinstall with `adb install -r` to keep it, or add the widget again after an uninstall.
+- `adb uninstall` also removes the placed widget from the Android home screen. To remove a widget from the Pixel launcher with adb, `input draganddrop` does not work; send `input motionevent DOWN x y`, wait 1.2 s, `MOVE` in steps to the top Remove target, then `UP`. Reinstall with `adb install -r` to keep it, or add the widget again after an uninstall.
 - iOS: check that the extension bundle holds its images with `xcrun assetutil --info <Runner.app>/PlugIns/<Name>.appex/Assets.car`.
 - Send the app to the background, refresh the widget, and check the log for crashes.
