@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import socket
 import urllib.request
 
 API = "https://api.appstoreconnect.apple.com/v1"
@@ -66,14 +67,19 @@ def call(method, path, body=None):
     req.add_header("Authorization", f"Bearer {token()}")
     req.add_header("Content-Type", "application/json")
     try:
-        with urllib.request.urlopen(req) as resp:
+        # A timeout, because a stalled connection otherwise hangs forever at 0% CPU.
+        with urllib.request.urlopen(req, timeout=30) as resp:
             raw = resp.read()
             return json.loads(raw) if raw else {}
+    except (TimeoutError, socket.timeout):
+        sys.exit(f"{method} {url} -> timed out after 30 s. Check the network: curl -m 15 {API}/apps (401 = reachable).")
     except urllib.error.HTTPError as e:
         detail = e.read().decode()
         if "REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED" in detail:
             sys.exit("403: the Account Holder must accept the new agreement in App Store Connect > Business.")
         sys.exit(f"{method} {url} -> {e.code}\n{detail}")
+    except urllib.error.URLError as e:
+        sys.exit(f"{method} {url} -> {e.reason}. Check the network: curl -m 15 {API}/apps (401 = reachable).")
 
 
 def app_id(bundle_id):

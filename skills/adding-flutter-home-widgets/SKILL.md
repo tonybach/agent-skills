@@ -21,10 +21,12 @@ Use `add_widget_target.rb` in this folder (Ruby `xcodeproj` gem, which CocoaPods
 | Version mismatch at upload | Hardcoded versions | `$(FLUTTER_BUILD_NAME)` / `$(FLUTTER_BUILD_NUMBER)` |
 | Blank widget on iOS 17+, or build error on `containerBackground` | API is iOS 17+, the script targets 15.0 | `if #available(iOS 17.0, *) { view.containerBackground(.fill.tertiary, for: .widget) } else { view.padding() }` |
 | Widget reads nothing | App Group missing on one target, or `setAppGroupId` not called first | Same group in both entitlements; call `HomeWidget.setAppGroupId` before any save |
+| Upload warns ITMS-91053 (missing API declaration) | `home_widget` writes App Group `UserDefaults` and ships no privacy manifest | Add `PrivacyInfo.xcprivacy` to Runner (`NSPrivacyAccessedAPICategoryUserDefaults`: `CA92.1` and `1C8F.1`) and to the widget extension (`1C8F.1`). Add both to their targets with `xcodeproj`, then check that `Runner.app/PlugIns/<Name>.appex/PrivacyInfo.xcprivacy` exists after a build |
 
 ## Values the widget reads
 
 - Save the date of the last activity (`yyyy-MM-dd`, local), never a "done today" boolean. Store every per-day value (a count, a goal) next to the date it belongs to, and show the reset value when that date is not today. Each platform computes "done" and "still alive" from the date, so the widget is right after midnight with the app closed. Keep the rule in one pure Dart function with tests, and mirror it in Swift and Kotlin with a comment that points to it.
+- When setup or onboarding finishes, save every value the widget reads, then call `HomeWidget.updateWidget`. If the app saves only in change handlers, values the user left at their defaults are never written, and the widget shows its "Open app to set up" state forever.
 - iOS timeline: one entry now and one just after the next midnight, policy `.after(midnight)`.
 - Android: compute in `onUpdate`; `updatePeriodMillis="1800000"` redraws at least every 30 minutes.
 - Android types: `home_widget` stores a small Dart `int` as an `Int` (`<int>` in `HomeWidgetPreferences.xml`). `getLong` on it throws. Read numbers with `(prefs.all["key"] as? Number)?.toInt()`.
@@ -53,4 +55,6 @@ if (foreground && _drawnFor != key) { /* renderFlutterWidget(...) */ }
 
 - iOS simulator: long-press the home screen, then the edit button, then **Add Widget**. The gallery uses `placeholder` or `getSnapshot`; check real data after you add it.
 - Android: `adb shell dumpsys appwidget | grep <package>` shows the provider. In the launcher, **Widgets** search does not match a name without its accents (search "Cafe" misses "Café"); search for a word in the widget label. `adb shell run-as <package> cat shared_prefs/HomeWidgetPreferences.xml` and `ls files/home_widget` show the saved values and images.
+- `adb uninstall` also removes the placed widget from the Android home screen. Reinstall with `adb install -r` to keep it, or add the widget again after an uninstall.
+- iOS: check that the extension bundle holds its images with `xcrun assetutil --info <Runner.app>/PlugIns/<Name>.appex/Assets.car`.
 - Send the app to the background, refresh the widget, and check the log for crashes.

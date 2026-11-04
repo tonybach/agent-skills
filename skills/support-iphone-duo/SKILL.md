@@ -61,7 +61,7 @@ Then look for layout problems a clean grep will not find:
 
 ## Phase 3: Fix patterns
 
-Copy `scripts/AdaptiveLayout.swift` into the app. It has:
+Copy `scripts/AdaptiveLayout.swift` into the app. In an older project that lists files by hand, a copied file is not compiled until it is in the project: `grep -c PBXFileSystemSynchronizedRootGroup <App>.xcodeproj/project.pbxproj` returns 0 there. Add the file with the Ruby `xcodeproj` gem, or put the helpers you need in an existing file. Never edit the `.pbxproj` by hand. The file has:
 
 - `readableWidth(_:)`: caps width and centers. Use about 480 pt for single-column pages and about 700 pt for lists and editors. Use the same width for a header and the content below it, or they misalign.
 - `FillingScrollView`: fills the height like a `VStack` (so `Spacer`s still center the content), and scrolls when the window is too short.
@@ -149,10 +149,15 @@ Never shut down or erase a device you did not create. The simulator UI is **Devi
 - Each new device needs the user's approval ("Let Claude use it"). Ask once, then wait.
 - Pass `device: <udid>` on **every** call. Without it, a tap went to a different booted Duo and timed out.
 - Its screenshots follow the active display (outer when closed, inner when open), and tap coordinates are points of the current pose (466 x 678 closed, 951 x 669 open, and so on).
+- Right after a boot, `tap` can fail with "input connection is still starting up". Wait 10 to 12 seconds and retry once.
+- The panel the user sees can show a different booted simulator from the one you drive. If the user says the panel shows the wrong device, ask them to pick your device by name.
+- Wait 1 to 2 seconds after a scroll before you tap. A list that was still scrolling sent taps to the wrong row: one opened a "Delete Account" confirmation, another opened a paywall's Terms link in Safari. Do not tap near destructive rows or external links while content may move. If you reach a destructive alert by mistake, cancel it; never confirm it.
+- `text` input can arrive late and be entered twice. Take a screenshot after each text entry and check the field before you go on.
 
 **Screenshots:**
 - `xcrun simctl io <udid> screenshot` captures the inner display, which is **black while closed**. List the displays with `xcrun simctl io <udid> enumerate` and capture with `--display=<uuid>`. Pick the display by `Default width` (1398 = outer, 2007 = inner). **The UUIDs change between launches**, so look them up every time.
 - A `simctl io ... screenshot` call can hang. Wrap it: `perl -e 'alarm 8; exec @ARGV' xcrun simctl io ...`.
+- If both displays capture black, even on the Home Screen, the simulator is at fault, not the app. Check the Home Screen first to tell the two apart. Then restart the simulator, but only one you created: `xcrun simctl shutdown <udid> && xcrun simctl boot <udid> && xcrun simctl bootstatus <udid> -b`.
 - `XCUIScreen.main.screenshot()` and `XCUIScreen.screens` return **black images** on the Duo simulator. Use the handshake in `scripts/ScreenTourUITests.swift` + `scripts/duo-capture-watcher.sh`: the test writes `<id>.ready`, the host script captures both displays with simctl and writes `<id>.done`.
 - Pass `TEST_RUNNER_SHOT_DIR=... TEST_RUNNER_POSE=...` to `xcodebuild test`; the test reads them as `SHOT_DIR` and `POSE`. The simulator shares the host file system, so the test can write marker files to a host path.
 
@@ -175,6 +180,13 @@ The panel tool's first screenshot after a tap can still show the screen from bef
 - Device Hub can show several devices. `dump` prints the window title (for example `iPhone Duo – iOS 27.1`). Check that it names the Duo before you press anything. Device Hub may open on another session's device, and `devicehub` cannot select a device in the sidebar. If the title names a device you did not create, do not press pose buttons: ask the user to select your Duo, or verify with `rotate` only.
 - Cover at least: closed, closed turned, open, open turned, Book. Book has the same window size as open, but sheets anchor to the leading half.
 - The Duo has Touch ID, not Face ID. Biometric lock screens fall back to the passcode prompt until you choose **Device → Touch ID → Enrolled**.
+- On Face ID simulators (for the same app on a normal iPhone), enroll and match without Device Hub:
+  ```bash
+  xcrun simctl spawn <udid> notifyutil -s com.apple.BiometricKit.enrollmentChanged 1
+  xcrun simctl spawn <udid> notifyutil -p com.apple.BiometricKit.enrollmentChanged   # enrolled
+  xcrun simctl spawn <udid> notifyutil -p com.apple.BiometricKit_Sim.pearl.match     # matching face
+  xcrun simctl spawn <udid> notifyutil -p com.apple.BiometricKit_Sim.pearl.nomatch   # wrong face
+  ```
 
 **Widgets:** check every widget family in every pose too. The Home Screen grid changes: two columns when closed, a wider grid when open, and in Book the widgets move to the trailing half.
 - Add them by hand: long-press an empty area → the brush button on the trailing rail → **Add Widget** → search the app name → swipe to the family → **Add Widget**.

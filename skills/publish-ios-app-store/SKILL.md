@@ -1,6 +1,6 @@
 ---
 name: publish-ios-app-store
-description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, making or uploading localized App Store screenshots, editing App Store Connect listings or versions, automating App Store Connect with the API, xcodebuild, xcodegen, or Xcode Cloud tag builds, or when Xcode Cloud builds fail or never reach TestFlight ("Exporting for App Store Distribution failed", "Automatic signing cannot update bundle identifier", "No profiles for ... were found").
+description: Use when preparing, localizing, uploading, or submitting an iOS app to the App Store, making or uploading localized App Store screenshots, editing App Store Connect listings or versions, creating subscriptions or in-app purchases in App Store Connect, answering App Privacy, sandbox-testing purchases, automating App Store Connect with the API, xcodebuild, xcodegen, or Xcode Cloud tag builds, or when Xcode Cloud builds fail or never reach TestFlight ("Exporting for App Store Distribution failed", "Automatic signing cannot update bundle identifier", "No profiles for ... were found").
 ---
 
 # Publishing an iOS app to the App Store
@@ -12,8 +12,13 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 - **Never read, print, or paste the `.p8` private key.** Only pass its path to tools. The Key ID and Issuer ID are not secret, but keep them (and team IDs) out of public repos and skills.
 - **Ask before:** creating an App Store version, uploading a build, changing a live listing, answering export compliance, and submitting for review. A user's "submit it" covers the submission steps in Phase 6, not new metadata changes.
 - **Auto mode blocks deploy steps without a specific approval.** Uploading a build, attaching a build, and submitting were each blocked as a production deploy after a general "yes, do everything". They ran once the user's latest message named the action ("Attach build 1.1.0 (4) to version 1.1.0 … and submit for review now"). So ask one question that names the version, the build, and the action. Never retry a blocked step in another form; offer the exact command for the user to run instead.
+- **Auto mode also blocks a real write after a stale dry run** ("[Blind Apply]"). A screenshot upload was blocked because the input folder changed after the last `--dry-run`. Run `--dry-run` again right before every real write when anything changed, then run the real command on its own.
+- **Push a release tag on its own.** `git commit … && git tag vX && git push origin vX` in one command was blocked as a production deploy. Commit and push first. Push the tag only after an approval that names it ("Push tag v1.1.1").
 - **Do not search the Mac for `.p8` files.** Auto mode blocks it as credential exploration. Ask the user for the Key ID, the Issuer ID, and the file path, then check only that path with `test -f`. A key used in an earlier session may have been moved since.
 - Accepting agreements, creating API keys, and signing in to Xcode are the user's job.
+- **The built-in browser pane cannot download files.** A one-time `.p8` (API key, Sign in with Apple key, In-App Purchase key) is lost if the user presses Download there. Tell the user to open that page in Safari or Chrome before they generate the key.
+- **Apple's docs pages are rendered by JavaScript.** WebFetch returns a summary from the model's memory, not the page. Read the JSON behind the page instead: `curl -s https://developer.apple.com/tutorials/data/documentation/<path>.json`, for example `appstoreconnectapi/ciworkflows.json` or `xcode/environment-variable-reference.json`.
+- **If `asc.py` or `xcloud.py` stops with "timed out" or a URL error** (calls have a 30 s timeout), check the network with `curl -m 15 https://api.appstoreconnect.apple.com/v1/apps`. A 401 means Apple is reachable; retry. For other long calls, wrap them in `perl -e 'alarm 60; exec @ARGV' <command>` (macOS has no `timeout`).
 - Before a commit, run `git status` and stage only the files you changed. Other sessions may have edited files in the same checkout. If an unexpected change gets into a commit, show the diff to the user and verify it (Phase 0, step 4 found such a change was a real fix).
 - Keep an `appstore/` folder in the project: the API script and one `metadata/<locale>.json` per language. Commit it so the next release reuses it.
 
@@ -38,6 +43,10 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
     - The delete button must show errors. If the server call fails, keep local data and say the account is not deleted. When it succeeds, confirm it.
 11. **User-generated content (1.2):** anything one user types that another user sees counts, including a display name on a leaderboard or friends list. The app needs a filter for objectionable text, a way to report it, a way to block the user, and published contact information. Apply the filter on the server too, for example in a database trigger, because a client check is easy to skip. When the app and the server each keep a word list, add a test that fails if the lists differ. Fold accents and common leetspeak before you match, and match short words as whole words only, so ordinary names still pass (for example "Dickson" and "Essex"). Answer "yes" for user-generated content on the age-rating form.
 12. **Paywall price (3.1.2(c)):** the amount the user is billed must be the most visible pricing text. A big "7 DAYS FREE" badge or a "Start my free week" button above a small price can be rejected. Make the price the largest text on the plan, put the trial on a smaller line, and name the price on the button or right under it.
+13. **Billing text looks wrong ("one-time purchase" on a subscription):** read which products the offering returns before you change code. In one app `storeProduct.subscriptionPeriod` was nil in every language because the RevenueCat `default` offering still pointed `$rc_monthly`/`$rc_annual` at the old non-renewing products. Check with `curl -s -H "Authorization: Bearer <public appl_ key>" -H "X-Platform: iOS" https://api.revenuecat.com/v1/subscribers/<any probe id>/offerings`. Fix in RevenueCat: attach the new products to the entitlement (keep the old ones on it so earlier buyers keep access), then swap the products in the packages, and check with the same curl. Also check that the scheme does not use a `.storekit` file.
+14. **Delete Account must delete everything it promises.** A security audit found "Delete Account" only reset settings. Delete every local store (database, files under `Documents`/`Application Support`, App Group defaults), cancel all scheduled notifications, and delete the CloudKit zone (`CKDatabase.deleteRecordZone`). If iCloud is offline, retry at the next launch, but only for the same iCloud account. After the delete, list the app container on the simulator (`xcrun simctl get_app_container <udid> <bundle> data`) to prove it is empty.
+15. **Frameworks that exist only on devices** (for example `JournalingSuggestions`) are missing from the simulator SDK, so a simulator build hides errors in that code. Check with `xcodebuild -scheme <App> -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`. Read the API from the SDK's `.swiftinterface`. Entitlement keys are listed in `/Applications/Xcode.app/Contents/SharedFrameworks/DVTPortal.framework/Versions/A/Resources/DVTPortalCachedPortalCapabilities.json`.
+16. **Flutter iOS privacy manifests:** plugins that write `UserDefaults` without their own manifest (for example `home_widget`) risk ITMS-91053 at upload. See `adding-flutter-home-widgets` for the `PrivacyInfo.xcprivacy` fix.
 
 ## Phase 1 — App Store Connect API access
 
@@ -50,6 +59,7 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 **Role choice:**
 - **App Manager** can do all metadata, version, build, and submission work in this skill.
 - App Manager **cannot cloud-sign for distribution**. The export then fails with `Cloud signing permission error` / `No signing certificate "iOS Distribution" found`. Fix: export with the Apple ID that is signed in to Xcode (Phase 5), or use an **Admin** key.
+- With App Manager, `GET /v1/ciWorkflows/{id}/xcodeVersion` returns 403, while `ciProducts` and `ciWorkflows` reads work. Read the Xcode version with `?include=xcodeVersion` on the workflow, as `xcloud.py show` does.
 
 **First call fails with 403 `FORBIDDEN.REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED`:** the Account Holder must accept the new agreement in App Store Connect → **Business** (or the banner at the top). Claude cannot accept terms. Wait for the user, then retry.
 
@@ -82,6 +92,7 @@ Users with a non-English device language saw English because the app had only `e
 - Check the built `.app` contains `<lang>.lproj`. Run in that language without changing simulator settings:
   `xcrun simctl launch <udid> <bundleId> -AppleLanguages "(<lang>)" -AppleLocale <lang>_<REGION>`, then take screenshots of the main screens.
 - If there is an Android app too, use the same terms on both platforms (for example the names of features and screens).
+- When text names an Apple feature (Journaling Suggestions, Lock Screen widgets, …), use Apple's official local name. Read it from Apple's local page, for example `curl -s https://www.apple.com/es/ios/…`. The es name of Journaling Suggestions is "Sugerencias de escritura", not a literal translation.
 
 ## Phase 3 — Version number
 
@@ -106,8 +117,12 @@ Users with a non-English device language saw English because the app had only `e
 - The new version copies `description`/`keywords`/URLs from the live version but **not `promotionalText` or `whatsNew`**. Copy the promo text over. `whatsNew` is required for updates.
 - Limits: name 30, subtitle 30, keywords 100 (comma-separated, no spaces needed), promotional text 170, description 4000. Count with Python `len()` before upload. Locale codes are App Store codes: `en-US`, `en-CA`, `ja`, `zh-Hans`, and so on.
 - Keywords: never use another app's or company's name (Apple rejects trademarks in keywords). Do not repeat words from the name or subtitle: Apple indexes those already, so repeats waste characters.
+- Do not name other companies' apps in the description either ("Post it to Instagram or TikTok"); say "share it anywhere". For keyword research, the App Store has no web search page; use the iTunes Search API: `curl "https://itunes.apple.com/search?term=<words>&entity=software&country=us&limit=25"`.
+- `copyright` is a version field (`PATCH /v1/appStoreVersions/{id}` `{copyright: "2026 <Legal owner>"}`). Use the same legal owner as the privacy page. Each new locale needs its own `supportUrl`, `marketingUrl` and `privacyPolicyUrl`.
+- `asc.py` has no command to remove a version from review. Use the API: `DELETE /v1/reviewSubmissionItems/{itemId}`, or `PATCH /v1/reviewSubmissions/{id}` `{canceled: true}` (ask first).
 - **The version string must match the build exactly.** A version named `1.0` does not take a `1.0.0` build (Flutter builds use `x.y.z` from `pubspec.yaml`). Compare with the build's `CFBundleShortVersionString` and fix it while the version is editable: `PATCH /v1/appStoreVersions/{id}` `{versionString}`.
 - **A first release needs fields an update copies over:** primary and secondary category (`PATCH /v1/appInfos/{id}` relationships `primaryCategory`/`secondaryCategory`, IDs such as `EDUCATION`), the age rating questionnaire (`PATCH /v1/ageRatingDeclarations/{appInfoId}`; booleans for `advertising`, `userGeneratedContent`, …, `NONE`/`INFREQUENT_OR_MILD`/`FREQUENT_OR_INTENSE` for the content levels; read back `appInfos.appStoreAgeRating`), the content rights declaration (`PATCH /v1/apps/{id}` `contentRightsDeclaration`), App Review details (`POST /v1/appStoreReviewDetails`; `contactPhone` is required, with `+` and the country code), and the app price (see Phase 6). App Privacy has no API: the user signs in and you fill it in the browser.
+  - App Privacy answers for common SDKs: Firebase Crashlytics adds **Crash Data** and **Device ID** (its install ID). RevenueCat adds **Purchase History**, **User ID** and **Device ID**. None are used for tracking. Press **Publish** at the end. Long JavaScript helpers on that form timed out at 45 s; read the page state before you run one again.
 - Answer the age rating from the content, not from the target rating. A course or story that mentions drinking is `alcoholTobaccoOrDrugUseOrReferences: INFREQUENT_OR_MILD`, which gives 12+. Display names shown to other users count as user-generated content.
 - Family Sharing on an auto-renewable subscription or non-consumable **cannot be turned off** after you turn it on. Ask the user before you enable it. Name the family plan in the subscription terms of the description.
 - Translate from the **live** English text (read with `status`), not from memory. Remove storefront-specific prices ("$7.99") from translated descriptions. Do not repeat a claim the code makes false.
@@ -120,6 +135,7 @@ Make one captioned set for the primary language and one for each localized langu
 
 **Size and simulator**
 - Upload the 6.9" iPhone size, 1320×2868 (`APP_IPHONE_67`). Apple scales it for smaller iPhones, so remove the old `APP_IPHONE_65` set.
+- **iPad:** a Flutter app supports iPad by default (`UIDeviceFamily` 1,2), so it needs an iPad set too: `APP_IPAD_PRO_3GEN_129`, 2064×2752 portrait, from a 13-inch iPad simulator. iPad device types may also need the previous runtime.
 - Use a Pro Max simulator for this app only (`iPhone <N> Pro Max - <App>`). The newest runtime may refuse Pro Max device types (`simctl create` → `Incompatible device`). Then create it on the previous runtime. Check one capture with `sips -g pixelWidth -g pixelHeight`.
 - Fix the status bar first: `xcrun simctl status_bar <udid> override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100`.
 - Build with the default DerivedData. A `-derivedDataPath` inside the project made the Crashlytics run script fail with `Operation not permitted` under script sandboxing.
@@ -131,6 +147,7 @@ Taps in the simulator need the user's permission and differ per language. Add `#
 - An image the app renders (a share card) can be written to `Documents/` and copied out with `xcrun simctl get_app_container <udid> <bundleId> data`.
 - Loop per language: `xcrun simctl terminate`, then `xcrun simctl launch <udid> <bundleId> -seedScreenshotData -screenshotScreen <name> -AppleLanguages "(<lang>)" -AppleLocale <lang>_<REGION>`, wait ~5 s, `xcrun simctl io <udid> screenshot raw/<locale>/<name>.png`.
 - Keep the script as `appstore/screenshots/capture.sh <udid>`.
+- **Flutter:** launch arguments are awkward with `flutter run`. Add a debug-only screenshot mode that reads a route name from a file at start, seeds sample data, and opens that screen. iOS: `echo <screen> > "$(xcrun simctl get_app_container <udid> <bundle> data)/Documents/screenshot.txt"`. Android: `adb shell "run-as <pkg> sh -c 'echo <screen> > app_flutter/screenshot.txt'"` (`app_flutter` is `getApplicationDocumentsDirectory`). Leave out screens that show real users (leaderboards).
 
 **Framing** (`appstore/screenshots/make_screenshots.py`, Pillow)
 - macOS Python has no Pillow, and the system Python refuses `pip install`. Use a venv: `python3 -m venv ~/.venvs/screenshots && ~/.venvs/screenshots/bin/pip install pillow`.
@@ -251,6 +268,9 @@ python3 -I xcloud.py --bundle-id <id> artifact <N> LOG_BUNDLE <new dir>
 
 - `Unable to authenticate with App Store Connect (… Session Proxy Provider …)` appears in failing and in succeeding exports. It is not the cause; read on to the `error: exportArchive` lines.
 - `issues` only says "download the logs artifact"; the cause is always in the log bundle.
+- **Xcode Cloud builds only what is committed.** In one app every run failed while local archives worked, because the fix (a package bump) was still uncommitted. Run `git status` for `project.pbxproj` and `Package.resolved`. To reproduce a cloud failure without its logs, clone `origin/main` into a scratch folder and run `xcodebuild -project … -scheme … -destination 'generic/platform=iOS' build` there.
+- **Old App Store builds numbered like `CURRENT_PROJECT_VERSION`, not like run numbers,** were uploaded by hand. That suggests the workflow's audience is None.
+- **Catch silent failures early.** Runs had failed for two days before anyone saw it on release day. Offer a daily read-only scheduled task that runs `xcloud.py runs 10` and reports failed runs with their `issues`.
 
 **No post-actions through the API:** TestFlight tester-group distribution (a post-action) cannot be set through `ciWorkflows`. Add it in Xcode or App Store Connect if needed, or enable automatic distribution on the internal group.
 
@@ -268,6 +288,8 @@ python3 -I xcloud.py --bundle-id <id> artifact <N> LOG_BUNDLE <new dir>
 
 The steps above work for an update. The first submission of products needs more, and the API alone cannot do it (verified Nov 2026):
 
+0. **Create the app and products.** The API cannot create the app record: the user presses **New App** in App Store Connect (an updated Program License Agreement banner may block it until accepted). The API can do the rest, and `asc.py` has no commands for it yet, so write small scripts: register the bundle ID (`POST /v1/bundleIds`) and enable capabilities (`POST /v1/bundleIdCapabilities`), then `subscriptionGroups`, `subscriptions`, `/v2/inAppPurchases`, their localizations, prices in every territory, the free-trial intro offer (`subscriptionIntroductoryOffers`), and Family Sharing (ask first; see Phase 4). Prices for 175 territories take many calls, so run them in the background and poll.
+
 1. **Review screenshot per product** (a paywall capture is enough), or the product stays `MISSING_METADATA`. Upload like a screenshot (Phase 4b): `POST /v1/subscriptionAppStoreReviewScreenshots` (relationship `subscription`) or `POST /v1/inAppPurchaseAppStoreReviewScreenshots` (relationship `inAppPurchaseV2`, type `inAppPurchases`), send the chunks, then `PATCH` `{uploaded: true, sourceFileChecksum}`. Read the current one of a one-time product under `/v2/inAppPurchases/{id}/appStoreReviewScreenshot`; the `/v1` path returns 404. The products then show `READY_TO_SUBMIT`.
 2. **App price.** "Add for Review" fails with "You must choose a price tier in Pricing" even for a free app. Set it: take the free point from `GET /v1/apps/{id}/appPricePoints?filter[territory]=USA` (`customerPrice` `0.0`), then `POST /v1/appPriceSchedules` with relationships `app`, `baseTerritory` (`USA`) and `manualPrices` (an included `appPrices` item that points to that price point).
 3. `POST /v1/subscriptionSubmissions` and `POST /v1/inAppPurchaseSubmissions` return 409 `FIRST_SUBSCRIPTION_MUST_BE_SUBMITTED_ON_VERSION` / `FIRST_NON_CONSUMABLE_MUST_BE_SUBMITTED_ON_VERSION`, and `reviewSubmissionItems` takes no products. The version page may also show no products section. In the browser (the user signs in):
@@ -277,6 +299,8 @@ The steps above work for an update. The first submission of products needs more,
    - The draft panel lists the items ("Items Ready to Submit"). Its **Submit for Review** button can stay disabled with no reason. `PATCH /v1/reviewSubmissions/{id}` `{"submitted": true}` submits the draft, or lists what is missing.
 4. A draft cannot be cancelled (`Resource is not in cancellable state`). To take the version out, delete its item: `DELETE /v1/reviewSubmissionItems/{itemId}`.
 5. Verify every item: the version and each product show `WAITING_FOR_REVIEW`.
+
+**Sandbox testing before review:** create a Sandbox tester (Users and Access → Sandbox), and on the iPhone sign in under Settings → Developer → Sandbox Apple Account. A product in `MISSING_METADATA`, or a missing Paid Apps agreement, makes purchases fail with no clear error. Sandbox renews monthly plans every 5 minutes and yearly plans every hour. To start again, clear the tester's purchase history in App Store Connect. A sandbox purchase can return before the entitlement is active, so treat a non-cancelled result as success and refresh `customerInfo` for a few seconds.
 
 Age rating, App Privacy, pricing, and content rights carry over from the earlier version. Re-check App Privacy if the release adds SDKs or data collection. If the app uses CloudKit, confirm with the user that the schema is deployed to Production (Phase 0, step 8) before you submit.
 

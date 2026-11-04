@@ -11,6 +11,7 @@ An app's site is usually three static pages: the product page, a privacy policy 
 
 ## 1. Site structure and URLs
 
+- The steps below assume GitHub Pages. If the site is on Cloudflare Pages (a shared shell, a `build.sh` that writes `dist/`, `_headers`, deploys from GitHub Actions), follow the `cloudflare-pages-static-site` skill for building, preview and deploys. The content rules here still apply. Old `.html` links return 308 there; that is expected.
 - One folder per app, served by GitHub Pages from `docs/`: `docs/index.html`, `docs/privacy/index.html`, `docs/terms/index.html`. The folders give clean URLs (`/privacy`, not `privacy.html`).
 - A project site lives under `/<Repo>/`, and the path is case sensitive. If the owner's user site has a custom domain, project sites get it too (`<domain>/<Repo>/`); do not add a `CNAME` to the app repo. Root links (`/styles.css`, `/privacy`, a logo with `href="/"`) go to the owner's main site. Use relative links (`href="privacy"`, from a subpage `href="../"`) or the full `/<Repo>/...` path.
 - Use one URL scheme everywhere: `<site>/<Repo>/` for the website and support URL, `<site>/<Repo>/privacy/` for the policy, `<site>/<Repo>/terms/` for terms. The app's Settings (a Privacy Policy row, a Terms row when there are subscriptions, a Contact mailto), the paywall (privacy and terms links), the store listings and the pages must use the same strings. The site can stay in one language; localize the store listing.
@@ -21,6 +22,7 @@ An app's site is usually three static pages: the product page, a privacy policy 
 ## 2. The product page
 
 - **Hero:** name, one-line promise, the official store badge, one or two screenshots. Use Apple's badge (`https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg` or a local copy), never a hand-made button. On a dark theme, use the white badge or `filter: invert(1)`, unless a Google Play badge sits next to it. Google allows only its black badge, so then keep both black.
+- **Before launch:** keep the product, privacy and terms pages live, because the stores need their URLs for review. But hide the app's card on an Apps index or studio home page until the app is on the store. Note in the repo's `RELEASE.md` that the card goes back at launch.
 - **Store link:** the numeric app ID exists in App Store Connect (App Information, Apple ID) before launch. Link `https://apps.apple.com/app/id<appId>`; it works once the app is live. Do not guess a slug URL or show a "coming soon" badge. Update every badge on the page, hero and footer. Add a Google Play badge only when the Play listing is live (a 404 on `play.google.com/store/apps/details?id=<pkg>` means it is not).
 - **Google Play badge:** use Google's official badge (`https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png`, or a local copy). Never invert it. The PNG has transparent padding: the visible badge is about 68% of the image height. To match a 54 px Apple badge, set the image to `height: 80px` with `margin: -13px`. Put both badges in one flex row (`flex-wrap: wrap`, `align-items: center`), and give the Apple `<img>` `display: block`, so line-height space does not push it off center. Center the row where the text above it is centered. In narrow containers such as a pricing card, make both badges smaller if they wrap.
 - **Features:** one card per shipped feature. Keep the card count a multiple of every column count the grid uses (3 and 2 columns: 6 or 12); with fewer real features, change the column count instead of padding. Leave out unreleased features; never write "coming soon".
@@ -37,7 +39,8 @@ An app's site is usually three static pages: the product page, a privacy policy 
 ## 3. Legal pages
 
 - Style them like the product page (same fonts and colors), with a link back to it and the same footer and favicon.
-- Name the legal owner the same way in the policy ("owned and operated by ..."), the terms, the page copyright, the app's copyright string and the store listing. Change all of them together.
+- Name the legal owner the same way in the policy ("owned and operated by ..."), the terms, the page copyright, the app's copyright string (App Store version `copyright`, for example "2026 <Company> LLC") and the store listing. Change all of them together. The Play developer account name can differ from the legal owner (a personal name for a company's app); check it and tell the user when they differ.
+- After a URL change in a Flutter app, a grep of the build (`kernel_blob.bin`, the AAB) does not find the new URL, because strings in the build are encoded. Check the link in the running app instead.
 - Update "Last updated" on every edit, and check the year.
 - **Privacy policy:** one section per service that receives data (purchases, crash reports, sync, content downloads): what it sends, why, and how long it is kept. Recheck it whenever the app adds or removes an SDK.
 - **Terms of use:** apps with auto-renewing subscriptions must link to terms of use from the paywall, Settings and the listing (App Store Guideline 3.1.2). Apple's standard license agreement (EULA) is enough; a custom page is a choice. Free and one-time paid apps can rely on Apple's standard EULA. A custom page should cover billing at confirmation, auto-renewal unless cancelled 24 hours before the period ends, the renewal charge window, how to cancel on each platform, upgrades and downgrades, refunds through the store, and lifetime purchases and restore.
@@ -56,6 +59,9 @@ These must say the same thing: the product page, the privacy policy, the store d
 - Capture from a current build of the released code with Debug-only sample data, opened by launch arguments where the app has them, so the run needs no taps and can be repeated. Set a clean status bar: `xcrun simctl status_bar <udid> override --time "9:41" --batteryState charged --batteryLevel 100`.
 - If the page has dark styles (`prefers-color-scheme`), capture every screenshot in light and dark from the same data (`xcrun simctl ui <udid> appearance dark`) and serve them with `<picture><source srcset="x-dark.png" media="(prefers-color-scheme: dark)"><img src="x.png" alt="..."></picture>`. Replace the light image too, so both show the same data. Check that the dark file really differs (compare hashes).
 - Use a simulator only you use. If the project's screenshot simulator is booted, another session may need it: create a temporary one and delete it afterwards.
+- Grant permissions (microphone, photos, notifications) before you launch the app: `xcrun simctl privacy <udid> grant <service> <bundle>` kills the running app.
+- After the app opens another app (Files, Safari), the status bar shows a "◀ <App>" back link. Before you capture, go to the Home Screen and open the app from there, or launch another app and then relaunch yours, so the link goes away.
+- Each new temporary simulator needs the user's approval in the simulator panel. Ask once, then wait; do not retry in a loop.
 - App Group settings need `xcrun simctl spawn <udid> defaults write <group container>/Library/Preferences/<group id> key -bool YES`; launch arguments do not reach them. Take proof screenshots with `xcrun simctl io <udid> screenshot`; a simulator panel's screenshot can be stale.
 - Keep the old pixel size so the layout does not move. Simple UI compresses well as a 256-color PNG (Pillow `quantize(256, dither=NONE)`); compare a crop first. Delete images the page no longer uses.
 - Store screenshots can share the pipeline: capture at the largest required size (iPhone 6.9": 1320 x 2868), frame them with a script that keeps captions per locale, check line breaks in every localized language, and dry-run uploads. For foldables, follow the `support-iphone-duo` skill.
@@ -66,6 +72,9 @@ These must say the same thing: the product page, the privacy policy, the store d
 - Parse the JSON-LD with `json.loads` (or `JSON.parse` in the page) and the sitemap as XML.
 - Emulate light and dark. For each image, check `img.currentSrc` and `naturalWidth` with script, not only by eye; scroll-reveal animations make page screenshots look blank.
 - Check a 375 px width for horizontal scroll and cropping.
+- **Accessibility:** run axe-core on every page. Get a pinned copy with `npm pack axe-core@4.10.2` in the scratchpad, serve the pages on `127.0.0.1`, inject the script and print the violations. Put the test server and any copies in the scratchpad only. A setup script that symlinked repo files replaced four legal pages in the repo with broken links. Never link or copy over files in the repo.
+- Test keyboard focus with real Tab key presses, one key per step, and a screenshot of each focus ring. A hidden iframe does not show focus styles, so scripted focus checks there prove nothing.
+- Fixes that passed review: `role="list"` on lists styled `list-style: none` (Safari drops their list meaning); explicit `role="row"` and `role="rowgroup"` plus visible per-cell labels on a table that stacks on phones; footer links in `<nav aria-label="Footer">`; `alt=""` on decorative icons.
 - Work in a git worktree, change the page, policy and listing files in the same commit, rebase on the default branch, then push.
 - After GitHub Pages deploys, run `curl -sI` on every URL and expect `200` over HTTPS before you enter new URLs in App Store Connect or Play Console.
 
@@ -83,3 +92,5 @@ These must say the same thing: the product page, the privacy policy, the store d
 | Page changed, sitemap `<lastmod>` not | Update it in the same commit |
 | `robots.txt` added to an app repo | It only works at the domain root |
 | Shared simulator reseeded or switched to dark | Temporary simulator |
+| App card on the studio index before the app is live | Hide the card, keep the three pages live |
+| Test server set up with symlinks into the repo | Copies in the scratchpad only |
