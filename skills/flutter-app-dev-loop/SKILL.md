@@ -1,6 +1,6 @@
 ---
 name: flutter-app-dev-loop
-description: Use when building, testing or checking a Flutter app on an iOS simulator, Android emulator or real phone. Also use when a widget test hangs or reports "A Timer is still pending", when simulator taps miss or screenshots lag, when a debug build will not open from the Home Screen, when Xcode says the signing certificate's private key is not installed, or when two flutter run builds stall. Also covers dart format rewriting whole files, Riverpod "Using ref when a widget is about to or has been unmounted", the keyboard covering fields or MediaQuery.viewInsets reading 0, a SnackBar that never shows, speech_to_text refilling a cleared field, setting up Firebase Crashlytics without the Firebase CLI, removing CocoaPods after Swift Package Manager ("your project still has CocoaPods integration"), and a shared checkout where another session's code does not compile.
+description: Use when building, testing or checking a Flutter app on an iOS simulator, Android emulator or real phone. Also use when a widget test hangs or reports "A Timer is still pending", when simulator taps miss or screenshots lag, when a debug build will not open from the Home Screen, when Xcode says the signing certificate's private key is not installed, or when two flutter run builds stall. Also covers dart format rewriting whole files, Riverpod "Using ref when a widget is about to or has been unmounted", the keyboard covering fields or MediaQuery.viewInsets reading 0, a SnackBar that never shows, speech_to_text refilling a cleared field, setting up Firebase Crashlytics or Analytics without the Firebase CLI, an app without ads whose build still has advertising ID permissions, removing CocoaPods after Swift Package Manager ("your project still has CocoaPods integration"), and a shared checkout where another session's code does not compile.
 ---
 
 # Flutter app dev loop
@@ -85,7 +85,7 @@ ffmpeg -i /tmp/x.mp4 -vf "select='gt(scene,0.003)',scale=200:-1,tile=10x3" -fram
 | A `SnackBar` never shows | A nested Scaffold catches it | Show the note as an overlay on the widget |
 | An LLM feature gets facts about the input text wrong (letter counts, accents, word parts) | A rule in the prompt alone does not work | Compute the data in code and pass it into the prompt |
 
-## 6. Firebase Crashlytics without the Firebase CLI
+## 6. Firebase Crashlytics and Analytics without the Firebase CLI
 
 1. Run `gcloud services enable firebase.googleapis.com`. Then call the REST API `POST https://firebase.googleapis.com/v1beta1/projects/<id>:addFirebase`.
 2. Register the iOS and Android apps through the same API and download their configs.
@@ -93,6 +93,17 @@ ffmpeg -i /tmp/x.mp4 -vf "select='gt(scene,0.003)',scale=200:-1,tile=10x3" -fram
 4. **Version clash:** `firebase_core` 5.x conflicted with `google_sign_in_ios` (GoogleSignIn 9). Pin `firebase_core: ^4.15` (Firebase iOS SDK 12.x) until the two match.
 5. Debug builds turn collection off. To check, use a release build: crash it, open it again, then query `https://firebasecrashlytics.googleapis.com/v1alpha/projects/<number>/apps/<appId>/issues`.
 6. zsh trap: never name a loop variable `path`, because zsh ties it to `PATH`.
+
+**Analytics in an app without ads.** Add `firebase_analytics` from the same Firebase line as `firebase_core`. Then:
+
+1. **Start with collection off.** `setAnalyticsCollectionEnabled(!kDebugMode)` runs too late: the SDK collects at launch before Dart calls it. Set `FIREBASE_ANALYTICS_COLLECTION_ENABLED` = NO in `Info.plist` and the `<meta-data>` `firebase_analytics_collection_enabled` = `false` in the manifest. Then turn it on in code for release builds.
+2. **iOS advertising ID:** with Swift Package Manager the plugin links `FirebaseAnalytics` (with IDFA support). The environment variable `FIREBASE_ANALYTICS_WITHOUT_ADID=true` removes it, but only for builds that set it, so do not rely on it. Set `GOOGLE_ANALYTICS_IDFA_COLLECTION_ENABLED` = NO and `GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS` = NO in `Info.plist`. These keys are enough. Also set `FirebaseAutomaticScreenReportingEnabled` = NO: Flutter has one view controller, so automatic screen views are useless.
+3. **Android ad permissions:** the merged manifest gets `com.google.android.gms.permission.AD_ID`, `android.permission.ACCESS_ADSERVICES_AD_ID` and `android.permission.ACCESS_ADSERVICES_ATTRIBUTION`. Remove all three with `tools:node="remove"` (add `xmlns:tools` to `<manifest>`). Add the `<meta-data>` `google_analytics_adid_collection_enabled` and `google_analytics_default_allow_ad_personalization_signals`, both `false`. Check the release APK with `aapt dump permissions`.
+4. **Screen views with go_router:** listen to `router.routerDelegate` and log `currentConfiguration.fullPath` (a pattern such as `/story/:id`, so no IDs). For a pushed route, `currentConfiguration.last` is an `ImperativeRouteMatch`: use its `matches.fullPath`. Skip a path that equals the last one.
+5. **Parameters:** Firebase takes only strings and numbers, at most 25 per event, names up to 40 characters, string values up to 100. Convert bools to 0 or 1 and drop nulls, or the call fails.
+6. **Check a release build:** `adb shell setprop debug.firebase.analytics.app <package>` and `adb shell setprop log.tag.FA-SVC VERBOSE`, start the app, then `adb logcat | grep "Logging event"`. On iOS the log shows `GoogleAppMeasurementIdentitySupport dependency is not currently linked. IDFA will not be accessible`, or `Analytics collection disabled` in debug. Reset with `setprop debug.firebase.analytics.app .none.`.
+7. **Install trap:** a debug build on the emulator has a different signature, so `adb install -r` of the release APK fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. Piped through `tail -1`, the error is hidden and the old build keeps running. Run `adb uninstall <package>` first and read the full output.
+8. Update the store privacy forms: approximate location (from IP), device ID and purchase history gain the purpose analytics.
 
 The Crashlytics dSYM script settings are in the global CLAUDE.md (Xcode Build Settings).
 
