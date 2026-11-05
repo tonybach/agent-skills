@@ -302,6 +302,21 @@ The steps above work for an update. The first submission of products needs more,
 
 **Sandbox testing before review:** create a Sandbox tester (Users and Access → Sandbox), and on the iPhone sign in under Settings → Developer → Sandbox Apple Account. A product in `MISSING_METADATA`, or a missing Paid Apps agreement, makes purchases fail with no clear error. Sandbox renews monthly plans every 5 minutes and yearly plans every hour. To start again, clear the tester's purchase history in App Store Connect. A sandbox purchase can return before the entitlement is active, so treat a non-cancelled result as success and refresh `customerInfo` for a few seconds.
 
+### Retention messages (subscription cancel flow)
+
+Since Nov 2026, iOS shows a message on the **Confirm Cancellation** page when someone cancels an auto-renewable subscription. The App Store Connect API can do the whole setup (verified Nov 2026); no app code changes.
+
+1. `POST /v1/retentionMessages` `{referenceName}` (max 64, cannot change later) with relationship `app`. Limits: 10 messages per app, one message per subscription.
+2. `POST /v1/retentionMessageVersions` with relationship `retentionMessage` (add `placement` only for an image from the app's asset library). It starts in `PREPARE_FOR_SUBMISSION`. A version cannot be changed or deleted, and an `APPROVED` version takes no new localizations: make a new version to change approved text.
+3. `POST /v1/retentionMessageLocalizations` `{locale, header, body}` with relationship `retentionMessageVersion`. `header` max 66 characters, `body` max 144. Count with `len()` first. Fix text before review with `PATCH /v1/retentionMessageLocalizations/{id}`.
+4. `PATCH /v1/subscriptions/{id}/relationships/retentionMessage` `{data: {type: retentionMessages, id}}` for each subscription (204, replaces any earlier message).
+5. Optional discount: `POST /v1/retentionOffers` (`referenceName`, `offerId`, `duration`, `offerMode`, `periodCount`, `customerEligibilityPaidSubscriptionDurationInMonths`, plus `subscription` and included `prices`), then `POST /v1/subscriptions/{id}/relationships/retentionMessageOffers`. An offer is a price decision: ask the user first.
+6. Review: add `POST /v1/reviewSubmissionItems` with relationships `reviewSubmission` and `retentionMessageVersion`. Ask first, like any submission. Follow `GET /v1/retentionMessageVersions/{id}` `state` to `APPROVED`.
+
+- Write only what the subscription gives (read the paywall's feature list). Apple rejects misleading text.
+- The separate **Retention Messaging API** (`api.storekit.apple.com/inApps/v1/messaging`) is for a server that picks a message in real time. It needs Apple's approval and a performance test. Messages from App Store Connect are enough for most apps.
+- To find new API resources, read the docs index JSON: `curl -s https://developer.apple.com/tutorials/data/index/appstoreconnectapi` and search for the resource name.
+
 Age rating, App Privacy, pricing, and content rights carry over from the earlier version. Re-check App Privacy if the release adds SDKs or data collection. If the app uses CloudKit, confirm with the user that the schema is deployed to Production (Phase 0, step 8) before you submit.
 
 ## Phase 7 — Wrap up
