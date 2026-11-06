@@ -148,11 +148,23 @@ Taps in the simulator need the user's permission and differ per language. Add `#
 - Loop per language: `xcrun simctl terminate`, then `xcrun simctl launch <udid> <bundleId> -seedScreenshotData -screenshotScreen <name> -AppleLanguages "(<lang>)" -AppleLocale <lang>_<REGION>`, wait ~5 s, `xcrun simctl io <udid> screenshot raw/<locale>/<name>.png`.
 - Keep the script as `appstore/screenshots/capture.sh <udid>`.
 - **Flutter:** launch arguments are awkward with `flutter run`. Add a debug-only screenshot mode that reads a route name from a file at start, seeds sample data, and opens that screen. iOS: `echo <screen> > "$(xcrun simctl get_app_container <udid> <bundle> data)/Documents/screenshot.txt"`. Android: `adb shell "run-as <pkg> sh -c 'echo <screen> > app_flutter/screenshot.txt'"` (`app_flutter` is `getApplicationDocumentsDirectory`). Leave out screens that show real users (leaderboards).
+- A capture that shows the Home Screen or the splash screen means the app was not ready: a just-booted simulator or a slow emulator needs a longer wait (~30 s). An Android emulator can show "Process system isn't responding": check `adb shell dumpsys window | grep mCurrentFocus` before capturing, and tap **Wait**.
+
+**Copy and story** (decide before you frame)
+- Write each headline as an outcome the user gets, in the user's words, in 8 words or fewer: "See every bill at a glance", not "Customizable dashboard". Test: read only the headlines aloud. They must tell a story, not list features.
+- Order the set as a story: 1 the core promise (what the app is and what the user gets), 2 the change it brings, 3 proof, 4–6 the features behind the promise. Many users see only the first two or three images.
+- One message per image. Hide the text: the image alone should still show the idea.
+- Proof must be real: ratings, review counts, awards, or content counts from the app's own data. A new app with no ratings uses content facts. Never invent numbers.
+- A mascot or character is a strong visual hook. Render it large and sharp from the app's own drawing code (a Flutter `CustomPainter`: a widget test that paints it inside a `RepaintBoundary` and saves `toImage(pixelRatio: 8)`), not cropped and scaled up from a capture.
+- Show the state that proves the headline: a "get feedback" image needs a correction on screen, a story image needs several lines. Add debug-only parameters for that state (a prefilled list, a scripted chat with no network or AI calls, a fixed exercise sentence) instead of hoping a random pick or a live reply looks right. Take the text from the app's real content.
 
 **Framing** (`appstore/screenshots/make_screenshots.py`, Pillow)
 - macOS Python has no Pillow, and the system Python refuses `pip install`. Use a venv: `python3 -m venv ~/.venvs/screenshots && ~/.venvs/screenshots/bin/pip install pillow`.
 - Layout per image: a vertical gradient taken from the app icon colors, a bold title (~112 px, `/System/Library/Fonts/SFNS.ttf` with variation `Bold`), a one-line or two-line subtitle (~52 px), then the capture scaled to 80 % with ~96 px rounded corners, a thin bezel and a soft shadow, running off the bottom edge. Show a share image whole, like a card, not in a phone.
-- `CAPTIONS = {locale: [(title, subtitle), …]}`, one entry per screen in App Store order. The first three screens matter most: lead with the core screen.
+- `CAPTIONS = {locale: [(title, subtitle), …]}`, one entry per screen in App Store order.
+- Zoom callouts: crop the one UI part that proves the headline from the raw capture, scale it up (~1.4× over the phone, ~2.5× on iPad, where the UI is small), and place it in a white rounded card with a shadow over the spot it comes from. Phone UI is unreadable at store thumbnail size without this.
+- Give each image its own color from the app palette on the same background pattern, so the set reads as one brand and each image still stands apart.
+- Headlines at most two lines (~130 px on a 1320 px canvas). Balance two-line titles: break where the longer line is shortest. Start each sentence of a title on a new line. Keep the phone at the same height on every image.
 - SF covers Latin scripts with diacritics. Japanese needs Hiragino (`ヒラギノ角ゴシック W7.ttc` / `W4.ttc`) and wrapping by character.
 - Read a contact sheet of all images in every language before you finish. Rewrite any title or subtitle whose last line is one word; translated captions are often longer than the English ones.
 - Folder names are App Store locale codes: `raw/<locale>/` and `out/<locale>/`. Name the primary set after the app's primary locale (read it with `status`; it may be `en-CA`, not `en-US`).
