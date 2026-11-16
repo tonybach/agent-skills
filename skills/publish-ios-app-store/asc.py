@@ -8,8 +8,12 @@ Env: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH (path to AuthKey_XXX.p8; never prin
   python3 asc.py --bundle-id com.example.App create-version 1.0.1
   python3 asc.py --bundle-id com.example.App apply metadata/vi.json [--dry-run]
   python3 asc.py --bundle-id com.example.App submit 1.0.1 1 [--no-encryption]
+  python3 asc.py --bundle-id com.example.App feedback [--out DIR] [--seen FILE]
 
-Only `status` and `builds` are read-only. Ask the user before the others.
+Only `status`, `builds` and `feedback` are read-only.
+`feedback` prints TestFlight feedback (screenshot and crash submissions) as JSON, newest first.
+--out DIR downloads screenshots (<id>-<n>.jpg) and crash logs (<id>.crash) there.
+--seen FILE skips submission ids listed in FILE (one per line). Tester emails are left out. Ask the user before the others.
 Metadata JSON: {"locale": "vi", "name", "subtitle", "privacyPolicyUrl",
                 "description", "keywords", "promotionalText", "whatsNew", "supportUrl", "marketingUrl"}
 (any subset; empty values are skipped).
@@ -216,6 +220,60 @@ def cmd_submit(app, version_string, build_number, no_encryption):
     print(f"Submitted: version {version_string} is {v['appStoreState']}, releaseType={v.get('releaseType')}")
 
 
+FEEDBACK_KINDS = {"betaFeedbackScreenshotSubmissions": "screenshot", "betaFeedbackCrashSubmissions": "crash"}
+
+
+def download(url, path):
+    with urllib.request.urlopen(url, timeout=60) as resp, open(path, "wb") as f:
+        f.write(resp.read())
+
+
+def cmd_feedback(app, out_dir, seen_path):
+    seen = set()
+    if seen_path and os.path.exists(seen_path):
+        seen = {l.split()[0] for l in open(seen_path) if l.strip() and not l.startswith("#")}
+    marketing = {b["id"]: b["marketing"] for b in builds(app, 50)}
+    items = []
+    for kind, label in FEEDBACK_KINDS.items():
+        path = f"/apps/{app}/{kind}?limit=200&sort=-createdDate&include=build"
+        while path:
+            r = call("GET", path)
+            build_numbers = {i["id"]: i["attributes"].get("version") for i in r.get("included", [])}
+            for d in r["data"]:
+                if d["id"] in seen:
+                    continue
+                a = d["attributes"]
+                rel = (d.get("relationships", {}).get("build") or {}).get("data")
+                build_id = rel["id"] if rel else None
+                item = {"id": d["id"], "kind": label, "created": a.get("createdDate"),
+                        "comment": a.get("comment"),
+                        "build": f"{marketing.get(build_id, '?')} ({build_numbers.get(build_id, '?')})" if build_id else None,
+                        "device": a.get("deviceModel"), "os": a.get("osVersion"), "locale": a.get("locale"),
+                        "screen": f"{a.get('screenWidthInPoints')}x{a.get('screenHeightInPoints')} pt",
+                        "connection": a.get("connectionType"), "appUptimeSeconds": (a.get("appUptimeInMilliseconds") or 0) // 1000,
+                        "files": []}
+                if out_dir:
+                    os.makedirs(out_dir, exist_ok=True)
+                    for n, shot in enumerate(a.get("screenshots") or [], 1):
+                        dest = os.path.join(out_dir, f"{d['id']}-{n}.jpg")
+                        download(shot["url"], dest)
+                        item["files"].append(dest)
+                    if label == "crash":
+                        try:
+                            log = call("GET", f"/{kind}/{d['id']}/crashLog")["data"]["attributes"].get("logText")
+                        except SystemExit as e:  # keep the other items if one log fails
+                            print(f"crash log {d['id']}: {e}", file=sys.stderr)
+                            log = None
+                        if log:
+                            dest = os.path.join(out_dir, f"{d['id']}.crash")
+                            open(dest, "w").write(log)
+                            item["files"].append(dest)
+                items.append(item)
+            path = r.get("links", {}).get("next")
+    items.sort(key=lambda i: i["created"] or "", reverse=True)
+    print(json.dumps(items, ensure_ascii=False, indent=2))
+
+
 def main():
     args = sys.argv[1:]
     bundle_id = os.environ.get("ASC_BUNDLE_ID")
@@ -223,6 +281,11 @@ def main():
         i = args.index("--bundle-id")
         bundle_id = args[i + 1]
         del args[i:i + 2]
+    args_all = list(args)
+    for name in ("--out", "--seen"):
+        if name in args:
+            i = args.index(name)
+            del args[i:i + 2]
     flags = {a for a in args if a.startswith("--")}
     args = [a for a in args if not a.startswith("--")]
     if not args or not bundle_id:
@@ -233,6 +296,9 @@ def main():
         cmd_status(app)
     elif cmd == "builds":
         cmd_builds(app)
+    elif cmd == "feedback":
+        opt = lambda name: args_all[args_all.index(name) + 1] if name in args_all else None
+        cmd_feedback(app, opt("--out"), opt("--seen"))
     elif cmd == "create-version" and len(args) == 2:
         cmd_create_version(app, args[1])
     elif cmd == "apply" and len(args) == 2:

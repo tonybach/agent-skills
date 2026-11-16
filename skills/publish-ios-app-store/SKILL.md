@@ -69,6 +69,7 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 export ASC_KEY_ID=<key id> ASC_ISSUER_ID=<issuer id> ASC_KEY_PATH=~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8
 python3 -I asc.py --bundle-id com.example.App status     # read-only: app infos, versions, localizations
 python3 -I asc.py --bundle-id com.example.App builds     # read-only: builds, processing state, export compliance
+python3 -I asc.py --bundle-id com.example.App feedback --out fb/ --seen handled.txt  # read-only: TestFlight screenshot and crash feedback as JSON, downloads files
 python3 -I asc.py --bundle-id com.example.App create-version 1.0.1               # ask first
 python3 -I asc.py --bundle-id com.example.App apply appstore/metadata/<locale>.json --dry-run
 python3 -I asc.py --bundle-id com.example.App submit 1.0.1 1 --no-encryption     # ask first; Phase 6 in one step
