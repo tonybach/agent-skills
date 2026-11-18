@@ -47,6 +47,12 @@ Learned from shipping a 1.0.1 update of a SwiftUI app (SwiftData + RevenueCat + 
 14. **Delete Account must delete everything it promises.** A security audit found "Delete Account" only reset settings. Delete every local store (database, files under `Documents`/`Application Support`, App Group defaults), cancel all scheduled notifications, and delete the CloudKit zone (`CKDatabase.deleteRecordZone`). If iCloud is offline, retry at the next launch, but only for the same iCloud account. After the delete, list the app container on the simulator (`xcrun simctl get_app_container <udid> <bundle> data`) to prove it is empty.
 15. **Frameworks that exist only on devices** (for example `JournalingSuggestions`) are missing from the simulator SDK, so a simulator build hides errors in that code. Check with `xcodebuild -scheme <App> -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build`. Read the API from the SDK's `.swiftinterface`. Entitlement keys are listed in `/Applications/Xcode.app/Contents/SharedFrameworks/DVTPortal.framework/Versions/A/Resources/DVTPortalCachedPortalCapabilities.json`.
 16. **Flutter iOS privacy manifests:** plugins that write `UserDefaults` without their own manifest (for example `home_widget`) risk ITMS-91053 at upload. See `adding-flutter-home-widgets` for the `PrivacyInfo.xcprivacy` fix.
+17. **Account readiness (the user checks; no API shows it).** A code scan cannot see these, and each can stop a release for weeks:
+    - developer.apple.com/account shows the membership as **Active**, not **Pending**. During a move from an individual to an organization membership, Apple turns off "membership benefits": the expedite review form says "There are no apps associated with this team", and a submission can wait in `WAITING_FOR_REVIEW` with no reply for weeks. Uploads and the API still worked in Nov 2026. Developer forum posts report migrations of 3 weeks to over 6 months, so start one a quarter before a launch. While it is open, contact Developer Support (Membership and Account) instead of sending an expedite request, and do not cancel the submission.
+    - Every agreement update is accepted by the Account Holder (App Store Connect → **Business**). A missing one can block submissions; the API answers 403 `REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED` (Phase 1).
+    - **EU trader status (Digital Services Act)** is declared in App Store Connect → **Business**. Without it Apple removes the app from the EU storefronts (enforced since Feb 2025). Google Play has its own trader declaration; one does not cover the other. Check it again after a change of legal owner.
+    - After a migration the seller name on the App Store becomes the organization. The privacy policy, terms and `copyright` should name the same legal owner.
+18. **No hidden features (2.5.19, Oct 2026):** App Review must see everything the build can do. A server flag or remote config that later turns on a feature the reviewer did not see counts as bait-and-switch. Build-time flags and content updates (lessons, text, prices from the store) are fine. If a feature is in the build but off for the review, either turn it on and describe it in the review notes, or remove it.
 
 ## Phase 1 — App Store Connect API access
 
@@ -137,6 +143,7 @@ Make one captioned set for the primary language and one for each localized langu
 **Size and simulator**
 - Upload the 6.9" iPhone size, 1320×2868 (`APP_IPHONE_67`). Apple scales it for smaller iPhones, so remove the old `APP_IPHONE_65` set.
 - **iPad:** a Flutter app supports iPad by default (`UIDeviceFamily` 1,2), so it needs an iPad set too: `APP_IPAD_PRO_3GEN_129`, 2064×2752 portrait, from a 13-inch iPad simulator. iPad device types may also need the previous runtime.
+- **iPhone Duo:** App Store Connect accepts iPhone Duo screenshots since Oct 2026, and they earn the "optimized for iPhone Duo" badge. A third-party compliance playbook says they become required in April 2027 for builds made with the iOS 27.1 SDK or later; check Apple's screenshot specification page before you rely on that date. Capture them in the Duo simulator (see `support-iphone-duo`). The Duo display type was not in the API docs JSON on 2026-11-18 (`screenshotdisplaytype.json` listed only older iPhone sizes), so read the current size and type in App Store Connect's version page before you script the upload.
 - Use a Pro Max simulator for this app only (`iPhone <N> Pro Max - <App>`). The newest runtime may refuse Pro Max device types (`simctl create` → `Incompatible device`). Then create it on the previous runtime. Check one capture with `sips -g pixelWidth -g pixelHeight`.
 - Fix the status bar first: `xcrun simctl status_bar <udid> override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100`.
 - Build with the default DerivedData. A `-derivedDataPath` inside the project made the Crashlytics run script fail with `Operation not permitted` under script sandboxing.
@@ -296,6 +303,14 @@ python3 -I xcloud.py --bundle-id <id> artifact <N> LOG_BUNDLE <new dir>
 5. `PATCH /v1/reviewSubmissions/{id}` `{"submitted": true}` → `WAITING_FOR_REVIEW`.
 6. Verify: `GET /v1/appStoreVersions/{id}?include=build` → `appStoreState: WAITING_FOR_REVIEW` and the correct build.
 7. Tell the user the `releaseType` (default `AFTER_APPROVAL` = goes live automatically). They can change it to `MANUAL` before approval. Review usually takes 24–48 h.
+
+### After a rejection or a question from App Review
+
+- Read the guideline number in the message. Fix the cause, or answer it exactly, in one reply in App Store Connect with evidence (a screenshot, a screen recording, or the steps to reach the feature). Do not argue the intent of the rule. Never resubmit an unchanged build hoping for a different reviewer.
+- A question with no rejection (for example "confirm the price of product X") still stops the review until you reply in App Store Connect.
+- **Resubmit after a reply** (submission state `UNRESOLVED_ISSUES`): `PATCH /v1/reviewSubmissions/{id}` `{"submitted": true}` alone returns 409 "Version is not ready to be submitted yet". First mark the rejected item resolved: `PATCH /v1/reviewSubmissionItems/{itemId}` `{"resolved": true}`, then submit (ask first). The submission keeps its ID and goes to `WAITING_FOR_REVIEW`.
+- If you think the reviewer misread the rules, the App Review Board appeal is the next step. Use it rarely and with evidence.
+- **Expedite review** (developer.apple.com/contact/app-store/?topic=expedite) is for urgent cases such as a critical bug fix or a dated event. It does not work while the membership is not Active (Phase 0, step 17).
 
 ### First release with in-app purchases or subscriptions
 
