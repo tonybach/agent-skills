@@ -71,7 +71,7 @@ ffmpeg -i /tmp/x.mp4 -vf "select='gt(scene,0.003)',scale=200:-1,tile=10x3" -fram
   ```
   Use `.claude/worktrees/` instead of the scratchpad, because the terminal tool can refuse a scratchpad working directory.
 - **Shared file, shared hunks:** `git add <file>` also stages another session's uncommitted hunks in that file. Use `git add -p` and check `git diff --cached` before you commit.
-- **`dart format` rewrote whole files.** The project may use a longer `formatter: page_width` in `analysis_options.yaml`. Read it first. Never format files that another session is editing; format only your own lines.
+- **`dart format` rewrote whole files.** The project may use a longer `formatter: page_width` in `analysis_options.yaml`. Read it first. Never format files that another session is editing; format only your own lines. When there is no `page_width` and existing files have lines far over 80 characters, the project is not formatted with `dart format`: do not run it on existing files (it rewrites them at 80), and format only files you created, with `-l` set to the project's line length. If it already ran, `git checkout` those files and apply your edits again.
 - A file under a package's `lib/` cannot import a path outside the package. A `bin/` script can.
 
 ## 5. Flutter bug patterns
