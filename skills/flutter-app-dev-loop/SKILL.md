@@ -1,6 +1,6 @@
 ---
 name: flutter-app-dev-loop
-description: Use when building, testing or checking a Flutter app on an iOS simulator, Android emulator or real phone. Also use when a widget test hangs or reports "A Timer is still pending", when simulator taps miss or screenshots lag, when a debug build will not open from the Home Screen, when Xcode says the signing certificate's private key is not installed, or when two flutter run builds stall. Also covers dart format rewriting whole files, Riverpod "Using ref when a widget is about to or has been unmounted", the keyboard covering fields or MediaQuery.viewInsets reading 0, a SnackBar that never shows, speech_to_text refilling a field or "Cannot add event after closing", setting up Firebase Crashlytics or Analytics without the Firebase CLI, an app without ads whose build still has advertising ID permissions, removing CocoaPods after Swift Package Manager ("your project still has CocoaPods integration"), and a shared checkout where another session's code does not compile.
+description: Use when building, testing or checking a Flutter app on an iOS simulator, Android emulator or real phone. Also use when a widget test hangs or reports "A Timer is still pending", when simulator taps miss or screenshots lag, when a debug build will not open from the Home Screen, when Xcode says the signing certificate's private key is not installed, or when two flutter run builds stall. Also covers dart format rewriting whole files, Riverpod "Using ref when a widget is about to or has been unmounted", the keyboard covering fields or MediaQuery.viewInsets reading 0, a SnackBar that never shows, iOS shake not firing, speech_to_text refilling a field or "Cannot add event after closing", setting up Firebase Crashlytics or Analytics without the Firebase CLI, an app without ads whose build still has advertising ID permissions, removing CocoaPods after Swift Package Manager ("your project still has CocoaPods integration"), and a shared checkout where another session's code does not compile.
 ---
 
 # Flutter app dev loop
@@ -24,6 +24,7 @@ This skill covers building and checking a Flutter app day to day. Other skills c
 - Taps sent while a sheet animates, or while a list still scrolls, are lost or hit the wrong row. Wait 1–2 s after a scroll or a transition. Never tap near destructive rows (Delete Account) or external links (Terms, which opens Safari) while content can still move. If you reach a destructive alert by mistake, cancel it.
 - A screenshot can show the screen from one step earlier. After each tap that matters, take a new screenshot.
 - Panel `text` input can arrive late and be typed twice. Take a screenshot after each text entry.
+- **Shake:** with no Simulator.app window (headless or panel only), send `xcrun simctl notify_post <udid> com.apple.UIKit.SimulatorShake`.
 - If the screen changes when you did not act, the user is probably using the device. Stop and ask.
 - **Waiting:** a foreground `sleep N; cmd` is blocked. Use `until <check>; do sleep 2; done`, `run_in_background`, or Monitor. Check the output of a background loop soon after you start it, because a quoting error can make it fail silently.
 
@@ -84,6 +85,8 @@ ffmpeg -i /tmp/x.mp4 -vf "select='gt(scene,0.003)',scale=200:-1,tile=10x3" -fram
 | Crash "Bad state: Cannot add event after closing" in a `speech_to_text` `onResult` | On Android the plugin sends a late final result (`_onFinalTimeout`) after your stream closed on `done` or an error | Return early in `onResult` when the `StreamController` is closed |
 | The keyboard covers controls below a field; `MediaQuery.viewInsets` reads 0 | The outer Scaffold already used the inset | Use a `WidgetsBindingObserver.didChangeMetrics` listener and scroll the controls into view |
 | A `SnackBar` never shows | A nested Scaffold catches it | Show the note as an overlay on the widget |
+| A shake never reaches Dart on iOS; `motionEnded` in `AppDelegate` never fires | UIKit gives a shake to the first responder and passes it up only to the window. A Flutter screen with no focused text field has no first responder | Override `motionEnded` in an `extension UIWindow`, post a `NotificationCenter` notification, and send it on an `EventChannel`. On Android, register the accelerometer listener in the stream's `onListen` and unregister it in `onCancel`, so it runs only while Dart listens |
+| The keyboard covers the button at the bottom of a modal bottom sheet | The sheet has a capped height and the inset padding is inside its scroll view | Put `Padding(bottom: MediaQuery.viewInsetsOf(ctx).bottom)` outside a `SingleChildScrollView(reverse: true)`. The top of the sheet scrolls away and the button stays above the keyboard |
 | An LLM feature gets facts about the input text wrong (letter counts, accents, word parts) | A rule in the prompt alone does not work | Compute the data in code and pass it into the prompt |
 
 ## 6. Firebase Crashlytics and Analytics without the Firebase CLI
