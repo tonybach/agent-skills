@@ -92,7 +92,7 @@ ffmpeg -i /tmp/x.mp4 -vf "select='gt(scene,0.003)',scale=200:-1,tile=10x3" -fram
 ## 6. Firebase Crashlytics and Analytics without the Firebase CLI
 
 1. Run `gcloud services enable firebase.googleapis.com`. Then call the REST API `POST https://firebase.googleapis.com/v1beta1/projects/<id>:addFirebase`.
-2. Register the iOS and Android apps through the same API and download their configs.
+2. Register the iOS and Android apps through the same API and download their configs. Do this **before** linking Google Analytics (`POST projects/<id>:addGoogleAnalytics {analyticsAccountId}`): an app registered after the link gets no data stream, and the API cannot add one (`:removeAnalytics` to relink returned 404). Fix that in the Firebase console (Project settings → Integrations → Google Analytics).
 3. Keep `google-services.json` and `GoogleService-Info.plist` git-ignored. Store master copies outside the repo (for example `~/.<app>/`), and copy them into each new worktree. Apply the Gradle plugins only if `google-services.json` exists, so the app still builds without it.
 4. **Version clash:** `firebase_core` 5.x conflicted with `google_sign_in_ios` (GoogleSignIn 9). Pin `firebase_core: ^4.15` (Firebase iOS SDK 12.x) until the two match.
 5. Debug builds turn collection off. To check, use a release build: crash it, open it again, then query `https://firebasecrashlytics.googleapis.com/v1alpha/projects/<number>/apps/<appId>/issues`.
