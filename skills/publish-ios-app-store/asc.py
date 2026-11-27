@@ -81,9 +81,24 @@ def call(method, path, body=None):
         detail = e.read().decode()
         if "REQUIRED_AGREEMENTS_MISSING_OR_EXPIRED" in detail:
             sys.exit("403: the Account Holder must accept the new agreement in App Store Connect > Business.")
-        sys.exit(f"{method} {url} -> {e.code}\n{detail}")
+        sys.exit(f"{method} {url} -> {e.code}\n{associated_errors(detail)}{detail}")
     except urllib.error.URLError as e:
         sys.exit(f"{method} {url} -> {e.reason}. Check the network: curl -m 15 {API}/apps (401 = reachable).")
+
+
+def associated_errors(detail):
+    """The real cause of a 409 on a review submission is nested in meta.associatedErrors
+    (for example a required age rating answer). Put it on top, one line per error."""
+    try:
+        errors = json.loads(detail).get("errors", [])
+    except ValueError:
+        return ""
+    lines = []
+    for err in errors:
+        for path, items in ((err.get("meta") or {}).get("associatedErrors") or {}).items():
+            for item in items:
+                lines.append(f"  {path}: {item.get('detail') or item.get('title')}")
+    return "Causes:\n" + "\n".join(lines) + "\n\n" if lines else ""
 
 
 def app_id(bundle_id):
@@ -209,8 +224,15 @@ def cmd_submit(app, version_string, build_number, no_encryption):
     call("PATCH", f"/appStoreVersions/{version['id']}/relationships/build",
          {"data": {"type": "builds", "id": build["id"]}})
     print(f"Attached build {version_string} ({build_number})")
-    sub = call("POST", "/reviewSubmissions", {"data": {"type": "reviewSubmissions", "attributes": {"platform": "IOS"},
-               "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})["data"]
+    # Reuse an open draft: each failed try would otherwise leave an empty one behind,
+    # and an empty draft cannot be cancelled (409).
+    drafts = call("GET", f"/reviewSubmissions?filter[app]={app}&filter[platform]=IOS"
+                         f"&filter[state]=READY_FOR_REVIEW")["data"]
+    sub = drafts[0] if drafts else call("POST", "/reviewSubmissions", {"data": {
+        "type": "reviewSubmissions", "attributes": {"platform": "IOS"},
+        "relationships": {"app": {"data": {"type": "apps", "id": app}}}}})["data"]
+    if drafts:
+        print(f"Reusing open review submission {sub['id']}")
     call("POST", "/reviewSubmissionItems", {"data": {"type": "reviewSubmissionItems", "relationships": {
         "reviewSubmission": {"data": {"type": "reviewSubmissions", "id": sub["id"]}},
         "appStoreVersion": {"data": {"type": "appStoreVersions", "id": version["id"]}}}}})
