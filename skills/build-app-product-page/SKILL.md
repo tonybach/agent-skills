@@ -31,10 +31,19 @@ An app's site is usually three static pages: the product page, a privacy policy 
 - **Head:** `<title>`, `meta description`, `og:title`, `og:description`, `og:url`, `og:type`, `og:image` (an absolute URL, for example the app icon), `twitter:card` (`summary`), `twitter:title`, `twitter:description`, `twitter:image`. Favicon and `apple-touch-icon` from the app icon, not an emoji, on every page. A `theme-color` per color scheme. A `<link rel="canonical">` to the page's own URL.
 - **Structured data:** a `<script type="application/ld+json">` block with `"@type": "MobileApplication"`: `name` (the store name), `description` (the same text as the meta description), `url`, `image` (the icon, absolute), `installUrl` (the store link), `operatingSystem` (from the lookup's `minimumOsVersion`), `applicationCategory` (a schema value such as `LifestyleApplication`, from the store genre) and `offers` (`price` and `priceCurrency` from the lookup). Leave out `aggregateRating` unless something keeps it current; star ratings in search need it, but a stale count is wrong. Update the block when the store name, category or price changes.
 
+**One install action per device (for an app on both stores):**
+- Phones and tablets: one large button that goes straight to the visitor's own store. Pick it with a small script that sets `html[data-os]` (iPadOS reports a Mac user agent; `navigator.maxTouchPoints > 1` gives it away) and CSS that shows the matching button. Link the store URL directly, not a redirect, so the page's own source tagging still rewrites it and a visit is not counted twice.
+- Computers: a QR code next to both badges, so a desktop visitor can install on their phone. Point it at a short server-side redirect that picks the store by user agent (`/get?ref=qr`). Keep the QR dark on white in both themes.
+- No JavaScript: both badges, as before.
+- macOS makes the QR code without a download: Core Image `CIQRCodeGenerator` in a short Swift script, then write the modules as SVG `<path>` runs with `shape-rendering="crispEdges"`. Render the SVG in a browser, screenshot it, and decode the PNG with `CIDetector` (`CIDetectorTypeQRCode`) to prove the URL.
+
 **Layout traps:**
 - Do not fit the hero to the viewport with `overflow: hidden` or `max-height: 70vh`; it crops on phones. Use `min-height: 100vh; min-height: 100dvh` and let the page scroll.
 - Screenshots: `max-width` instead of a fixed `width`, `height: auto`, `object-fit: contain`, and `width`/`height` attributes on the `<img>`.
-- Support `prefers-reduced-motion` if the page animates.
+- A large transparent PNG (a mascot, a hero illustration) at 2x size can weigh 400 KB. `sips` cannot write WebP, but it writes AVIF with alpha: `sips -s format avif -s formatOptions 85 in.png --out out.avif` (an 840 px image went from 398 KB to 34 KB with no visible change). Serve it in `<picture><source type="image/avif">` with the old PNG as the `<img>`. Compare a zoomed crop on the real background before you pick the quality.
+- Support `prefers-reduced-motion` if the page animates. Start each animation from the visible resting state, with no delay, so content never waits hidden. Animate `transform` and `opacity` only.
+- A row of short facts in `display: flex; flex-wrap: wrap; justify-content: space-between` wraps 2 + 2 with the right items pushed to the edge. Use a two-column grid until all items fit on one row.
+- FAQ `<details>`: put the padding on `<summary>`, not on `<details>`, so the whole row opens the answer. Stand-alone footer and legal links need padding to reach 44 px high.
 
 ## 3. Legal pages
 
